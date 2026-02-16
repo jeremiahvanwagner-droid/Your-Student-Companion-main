@@ -10,7 +10,19 @@ Run commands from:
 C:\Users\JeremiahVanWagner\Your-Student-Companion-main\Your-Student-Companion-main
 ```
 
-## 1) Schema + Webhook Readiness Audit
+## 1) Reconcile Compatibility Schema to MVP Baseline
+
+If your audit reports missing tables like `users`, `student_profiles`, `assignments`, etc., run:
+
+- `backend/migrations/004_reconcile_from_compat_schema.sql`
+
+Recommended execution path:
+
+1. Open Supabase SQL Editor.
+2. Paste SQL from `backend/migrations/004_reconcile_from_compat_schema.sql`.
+3. Run it once.
+
+## 2) Schema + Webhook Readiness Audit
 
 ```powershell
 python backend/scripts/audit_supabase_schema.py
@@ -24,7 +36,7 @@ What it checks:
 - Supabase Edge function reachability (`/functions/v1/stripe-webhook`)
 - Stripe endpoint events include required event set
 
-## 2) Edge Webhook Write Validation
+## 3) Edge Webhook Write Validation
 
 ```powershell
 python backend/scripts/validate_supabase_webhook.py
@@ -39,7 +51,7 @@ Note:
 
 - This validator simulates `checkout.session.completed` with an unpaid session and therefore usually writes `status: pending`.
 
-## 3) Deploy Stripe Webhook Edge Function
+## 4) Deploy Stripe Webhook Edge Function
 
 ```powershell
 npx supabase functions deploy stripe-webhook --project-ref uvyvvaxufmylqavewvex
@@ -47,7 +59,7 @@ npx supabase functions deploy stripe-webhook --project-ref uvyvvaxufmylqavewvex
 
 If deploy fails with `entrypoint path does not exist`, verify you are in the inner project folder above.
 
-## 4) Set Function Secrets
+## 5) Set Function Secrets
 
 ```powershell
 Get-Content backend/.env | ForEach-Object {
@@ -62,7 +74,7 @@ npx supabase secrets set \
   --project-ref uvyvvaxufmylqavewvex
 ```
 
-## 5) Required Stripe Events
+## 6) Required Stripe Events
 
 The destination URL should include these events:
 
@@ -72,7 +84,7 @@ The destination URL should include these events:
 - `customer.subscription.deleted`
 - `invoice.payment_failed`
 
-## 6) Real Checkout Validation (Manual)
+## 7) Real Checkout Validation (Manual)
 
 After a real paid test checkout in Stripe test mode, verify in SQL:
 
