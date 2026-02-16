@@ -1,11 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
 app = FastAPI(
     title="Student Companion API",
     description="Backend API for Your Student Companion PWA",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # CORS configuration
@@ -20,9 +19,11 @@ app.add_middleware(
 # Import and include routers
 from routes.ai_mentor import router as ai_mentor_router
 from routes.store import router as store_router
+from routes.webhooks import router as webhooks_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
+app.include_router(webhooks_router)
 
 
 # ============================================
@@ -43,8 +44,9 @@ async def api_health_check():
         "services": {
             "api": "operational",
             "ai_mentor": "placeholder_mode",
-            "voice": "elevenlabs_conversational_ai"
-        }
+            "voice": "elevenlabs_conversational_ai",
+            "store": "supabase_stripe",
+        },
     }
 
 
@@ -59,6 +61,7 @@ async def root():
         "endpoints": {
             "ai_mentor": "/api/ai",
             "store": "/api/store",
-            "health": "/health"
-        }
+            "stripe_webhook": "/api/store/webhook",
+            "health": "/health",
+        },
     }
