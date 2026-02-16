@@ -1,0 +1,79 @@
+{
+  "name": "Your Student Companion: Study & Focus",
+  "short_name": "Student Companion",
+  "description": "Dictionary, Thesaurus & AI Tutor - The best free study app for college. Focus timer, Pomodoro technique, college planner, homework helper, and offline dictionary. No subscription required.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0a192f",
+  "theme_color": "#64ffda",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-US",
+  "dir": "ltr",
+  "categories": ["education", "productivity", "utilities"],
+  "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Student Companion Dashboard - Your Academic Mission Control"
+    },
+    {
+      "src": "screenshot-mobile.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Student Companion Mobile - Study Anywhere"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick Search",
+      "short_name": "Search",
+      "description": "Search for word definitions instantly",
+      "url": "/app?tab=search",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Focus Mode",
+      "short_name": "Focus",
+      "description": "Start a 25-minute Pomodoro focus session",
+      "url": "/app?focus=true",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "AI Mentor",
+      "short_name": "Mentor",
+      "description": "Chat with your AI study assistant",
+      "url": "/app?tab=mentor",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    }
+  ],
+  "related_applications": [],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
+}

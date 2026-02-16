@@ -1,0 +1,292 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Google Fonts - IBM Plex Sans for academic/tech feel */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@layer base {
+    :root {
+        /* Truth Blue Theme - Deep Navy + Slate Gray + Electric Cyan */
+        
+        /* Primary - Electric Cyan Accent */
+        --primary: 166 100% 70%;
+        --primary-foreground: 217 64% 11%;
+        --primary-glow: 166 100% 80%;
+        
+        /* Background - Deep Navy */
+        --background: 217 64% 11%;
+        --foreground: 226 56% 88%;
+        
+        /* Card/Surface - Slightly lighter navy */
+        --card: 217 55% 14%;
+        --card-foreground: 226 56% 88%;
+        
+        /* Popover - Similar to card */
+        --popover: 217 55% 14%;
+        --popover-foreground: 226 56% 88%;
+        
+        /* Secondary - Muted Navy */
+        --secondary: 217 50% 18%;
+        --secondary-foreground: 226 56% 88%;
+        
+        /* Muted - Very subtle navy */
+        --muted: 217 45% 20%;
+        --muted-foreground: 226 40% 60%;
+        
+        /* Accent - Electric Cyan (same as primary for consistency) */
+        --accent: 166 100% 70%;
+        --accent-foreground: 217 64% 11%;
+        --accent-glow: 166 100% 80%;
+        
+        /* Destructive - Soft red */
+        --destructive: 0 60% 50%;
+        --destructive-foreground: 0 0% 98%;
+        
+        /* Success - Green */
+        --success: 142 70% 45%;
+        --success-foreground: 0 0% 98%;
+        
+        /* Warning - Amber */
+        --warning: 38 92% 50%;
+        --warning-foreground: 0 0% 10%;
+        
+        /* Border */
+        --border: 217 40% 22%;
+        
+        /* Input */
+        --input: 217 40% 22%;
+        
+        /* Ring - Cyan for focus */
+        --ring: 166 100% 70%;
+        
+        /* Radius */
+        --radius: 0.625rem;
+        
+        /* Custom Shadows */
+        --shadow-soft: 0 4px 20px -4px hsl(217 64% 5% / 0.5);
+        --shadow-glow: 0 0 30px hsl(166 100% 70% / 0.15);
+        --shadow-glow-strong: 0 0 40px hsl(166 100% 70% / 0.25);
+        
+        /* Custom Gradients */
+        --gradient-radial: radial-gradient(ellipse at center, hsl(217 55% 16%), hsl(217 64% 11%));
+        --gradient-card: linear-gradient(145deg, hsl(217 55% 16%), hsl(217 55% 12%));
+        --gradient-accent: linear-gradient(135deg, hsl(166 100% 70%), hsl(175 100% 60%));
+        
+        /* Transitions */
+        --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        --transition-bounce: 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+}
+
+body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    min-height: 100vh;
+}
+
+code {
+    font-family: 'IBM Plex Mono', source-code-pro, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    
+    body {
+        @apply bg-background text-foreground;
+    }
+    
+    /* Custom scrollbar for the theme */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: hsl(var(--background));
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: hsl(var(--border));
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: hsl(var(--muted-foreground));
+    }
+}
+
+@layer components {
+    /* Glow effect for accent elements */
+    .glow-cyan {
+        box-shadow: var(--shadow-glow);
+    }
+    
+    .glow-cyan-strong {
+        box-shadow: var(--shadow-glow-strong);
+    }
+    
+    /* Text glow */
+    .text-glow {
+        text-shadow: 0 0 20px hsl(166 100% 70% / 0.5);
+    }
+    
+    /* Gradient backgrounds */
+    .bg-gradient-radial {
+        background: var(--gradient-radial);
+    }
+    
+    .bg-gradient-card {
+        background: var(--gradient-card);
+    }
+    
+    /* Animated border */
+    .border-glow {
+        border: 1px solid hsl(var(--border));
+        transition: border-color var(--transition-smooth), box-shadow var(--transition-smooth);
+    }
+    
+    .border-glow:hover,
+    .border-glow:focus-within {
+        border-color: hsl(var(--accent));
+        box-shadow: var(--shadow-glow);
+    }
+    
+    /* Pulse animation for lock icon */
+    @keyframes pulse-glow {
+        0%, 100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+    }
+    
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+    
+    /* Fade in animation */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .animate-fadeIn {
+        animation: fadeIn 0.4s ease-out forwards;
+    }
+    
+    /* Slide up animation */
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .animate-slideUp {
+        animation: slideUp 0.5s ease-out forwards;
+    }
+    
+    /* Scale in animation */
+    @keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+    
+    .animate-scaleIn {
+        animation: scaleIn 0.3s ease-out forwards;
+    }
+    
+    /* Shimmer loading effect */
+    @keyframes shimmer {
+        0% {
+            background-position: -200% 0;
+        }
+        100% {
+            background-position: 200% 0;
+        }
+    }
+    
+    .animate-shimmer {
+        background: linear-gradient(
+            90deg,
+            hsl(var(--card)) 0%,
+            hsl(var(--secondary)) 50%,
+            hsl(var(--card)) 100%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+    }
+}
+
+@layer utilities {
+    /* Custom focus ring */
+    .focus-ring {
+        @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    }
+    
+    /* Hide scrollbar but keep functionality */
+    .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+    
+    .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+@layer base {
+    [data-debug-wrapper="true"] {
+        display: contents !important;
+    }
+
+    [data-debug-wrapper="true"] > * {
+        margin-left: inherit;
+        margin-right: inherit;
+        margin-top: inherit;
+        margin-bottom: inherit;
+        padding-left: inherit;
+        padding-right: inherit;
+        padding-top: inherit;
+        padding-bottom: inherit;
+        column-gap: inherit;
+        row-gap: inherit;
+        gap: inherit;
+        border-left-width: inherit;
+        border-right-width: inherit;
+        border-top-width: inherit;
+        border-bottom-width: inherit;
+        border-left-style: inherit;
+        border-right-style: inherit;
+        border-top-style: inherit;
+        border-bottom-style: inherit;
+        border-left-color: inherit;
+        border-right-color: inherit;
+        border-top-color: inherit;
+        border-bottom-color: inherit;
+    }
+}
