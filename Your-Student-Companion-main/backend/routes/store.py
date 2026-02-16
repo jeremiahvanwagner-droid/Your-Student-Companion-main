@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 import stripe
@@ -102,7 +102,11 @@ def _fetch_pack_by_identifier(admin_client, pack_identifier: str) -> Dict[str, A
     return packs[0]
 
 
-def _attach_catalog_context(pack: Dict[str, Any], level_map: Dict[str, Dict[str, Any]], degree_plan_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _attach_catalog_context(
+    pack: Dict[str, Any],
+    level_map: Dict[str, Dict[str, Any]],
+    degree_plan_map: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
     enriched = dict(pack)
     enriched["academic_level"] = level_map.get(pack.get("academic_level_id"))
     enriched["degree_plan"] = degree_plan_map.get(pack.get("degree_plan_id"))
@@ -159,7 +163,9 @@ def get_degree_plans(include_inactive: bool = False):
 
     result = []
     for plan in degree_plans:
-        plan_stats = stats.get(plan["id"], {"pack_count": 0, "min_price": None, "max_price": None})
+        plan_stats = stats.get(
+            plan["id"], {"pack_count": 0, "min_price": None, "max_price": None}
+        )
         enriched_plan = dict(plan)
         enriched_plan["pack_count"] = plan_stats["pack_count"]
         enriched_plan["min_price"] = _decimal_or_none(plan_stats["min_price"])
@@ -261,6 +267,9 @@ def get_pack_details(pack_id: str):
 
 @router.post("/checkout", response_model=CheckoutResponse)
 def create_checkout_session(request: CheckoutRequest):
+    if not _is_uuid(request.user_id):
+        raise HTTPException(status_code=422, detail="user_id must be a valid UUID")
+
     admin_client = _admin_client()
     stripe_client = _stripe_client()
 
@@ -305,7 +314,10 @@ def create_checkout_session(request: CheckoutRequest):
             },
         )
     except Exception as exc:  # pylint: disable=broad-except
-        raise HTTPException(status_code=502, detail=f"Stripe checkout creation failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe checkout creation failed: {exc}",
+        ) from exc
 
     admin_client.table("user_purchases").upsert(
         {
@@ -329,6 +341,9 @@ def create_checkout_session(request: CheckoutRequest):
 
 @router.get("/user/{user_id}/purchases")
 def get_user_purchases(user_id: str):
+    if not _is_uuid(user_id):
+        raise HTTPException(status_code=422, detail="user_id must be a valid UUID")
+
     admin_client = _admin_client()
 
     purchases = (
@@ -344,7 +359,11 @@ def get_user_purchases(user_id: str):
         or []
     )
 
-    pack_ids = [purchase["course_pack_id"] for purchase in purchases if purchase.get("course_pack_id")]
+    pack_ids = [
+        purchase["course_pack_id"]
+        for purchase in purchases
+        if purchase.get("course_pack_id")
+    ]
     pack_map: Dict[str, Dict[str, Any]] = {}
 
     if pack_ids:
@@ -421,14 +440,15 @@ def purchase_pack_legacy(request: LegacyPurchaseRequest):
     """
     Backward-compatible endpoint retained while frontend migrates to /checkout.
     """
+    if not request.user_id:
+        raise HTTPException(status_code=400, detail="user_id is required for checkout")
+
     frontend_base_url = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
     success_url = request.success_url or f"{frontend_base_url}/app/store?checkout=success"
     cancel_url = request.cancel_url or f"{frontend_base_url}/app/store?checkout=cancel"
 
-    user_id = request.user_id or "anonymous"
-
     checkout_request = CheckoutRequest(
-        user_id=user_id,
+        user_id=request.user_id,
         course_pack_id=request.pack_id,
         success_url=success_url,
         cancel_url=cancel_url,
