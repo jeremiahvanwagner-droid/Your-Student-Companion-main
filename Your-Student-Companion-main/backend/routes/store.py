@@ -63,6 +63,26 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
+def _is_integer_identifier(value: str) -> bool:
+    if value is None:
+        return False
+    return str(value).isdigit()
+
+
+def _ensure_purchase_tables_ready(admin_client) -> None:
+    try:
+        admin_client.table("user_purchases").select("id").limit(1).execute()
+        admin_client.table("user_subscriptions").select("id").limit(1).execute()
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Store purchase tables are not installed in Supabase. "
+                "Run backend/migrations/003_store_payment_bootstrap.sql in SQL Editor."
+            ),
+        ) from exc
+
+
 def _fetch_level_map(admin_client) -> Dict[str, Dict[str, Any]]:
     levels = (
         admin_client.table("academic_levels")
@@ -71,7 +91,7 @@ def _fetch_level_map(admin_client) -> Dict[str, Dict[str, Any]]:
         .data
         or []
     )
-    return {level["id"]: level for level in levels}
+    return {str(level["id"]): level for level in levels}
 
 
 def _fetch_degree_plan_map(admin_client) -> Dict[str, Dict[str, Any]]:
@@ -82,7 +102,7 @@ def _fetch_degree_plan_map(admin_client) -> Dict[str, Dict[str, Any]]:
         .data
         or []
     )
-    return {plan["id"]: plan for plan in plans}
+    return {str(plan["id"]): plan for plan in plans}
 
 
 def _fetch_pack_by_identifier(admin_client, pack_identifier: str) -> Dict[str, Any]:
@@ -93,6 +113,8 @@ def _fetch_pack_by_identifier(admin_client, pack_identifier: str) -> Dict[str, A
 
     if _is_uuid(pack_identifier):
         packs = query.eq("id", pack_identifier).limit(1).execute().data or []
+    elif _is_integer_identifier(pack_identifier):
+        packs = query.eq("id", int(pack_identifier)).limit(1).execute().data or []
     else:
         packs = query.eq("slug", pack_identifier).limit(1).execute().data or []
 
@@ -108,8 +130,8 @@ def _attach_catalog_context(
     degree_plan_map: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     enriched = dict(pack)
-    enriched["academic_level"] = level_map.get(pack.get("academic_level_id"))
-    enriched["degree_plan"] = degree_plan_map.get(pack.get("degree_plan_id"))
+    enriched["academic_level"] = level_map.get(str(pack.get("academic_level_id")))
+    enriched["degree_plan"] = degree_plan_map.get(str(pack.get("degree_plan_id")))
     return enriched
 
 
@@ -141,7 +163,7 @@ def get_degree_plans(include_inactive: bool = False):
 
     stats: Dict[str, Dict[str, Any]] = {}
     for pack in packs:
-        degree_plan_id = pack["degree_plan_id"]
+        degree_plan_id = str(pack["degree_plan_id"])
         price = Decimal(str(pack["price"]))
 
         bucket = stats.setdefault(
@@ -164,7 +186,7 @@ def get_degree_plans(include_inactive: bool = False):
     result = []
     for plan in degree_plans:
         plan_stats = stats.get(
-            plan["id"], {"pack_count": 0, "min_price": None, "max_price": None}
+            str(plan["id"]), {"pack_count": 0, "min_price": None, "max_price": None}
         )
         enriched_plan = dict(plan)
         enriched_plan["pack_count"] = plan_stats["pack_count"]
@@ -193,7 +215,7 @@ def get_degree_plan_packs(degree_slug: str, include_inactive: bool = False):
         raise HTTPException(status_code=404, detail="Degree plan not found")
 
     level_map = _fetch_level_map(admin_client)
-    degree_plan_map = {degree_plan["id"]: degree_plan}
+    degree_plan_map = {str(degree_plan["id"]): degree_plan}
 
     pack_query = admin_client.table("course_packs").select(
         "id,degree_plan_id,academic_level_id,name,slug,description,price,"
@@ -267,10 +289,11 @@ def get_pack_details(pack_id: str):
 
 @router.post("/checkout", response_model=CheckoutResponse)
 def create_checkout_session(request: CheckoutRequest):
-    if not _is_uuid(request.user_id):
-        raise HTTPException(status_code=422, detail="user_id must be a valid UUID")
+    if not request.user_id:
+        raise HTTPException(status_code=422, detail="user_id is required")
 
     admin_client = _admin_client()
+    _ensure_purchase_tables_ready(admin_client)
     stripe_client = _stripe_client()
 
     pack = _fetch_pack_by_identifier(admin_client, request.course_pack_id)
@@ -288,7 +311,7 @@ def create_checkout_session(request: CheckoutRequest):
         admin_client.table("user_purchases")
         .select("id,status")
         .eq("user_id", request.user_id)
-        .eq("course_pack_id", pack["id"])
+        .eq("course_pack_id", str(pack["id"]))
         .eq("status", "completed")
         .limit(1)
         .execute()
@@ -309,7 +332,7 @@ def create_checkout_session(request: CheckoutRequest):
             allow_promotion_codes=True,
             metadata={
                 "user_id": request.user_id,
-                "course_pack_id": pack["id"],
+                "course_pack_id": str(pack["id"]),
                 "course_pack_slug": pack["slug"],
             },
         )
@@ -322,7 +345,7 @@ def create_checkout_session(request: CheckoutRequest):
     admin_client.table("user_purchases").upsert(
         {
             "user_id": request.user_id,
-            "course_pack_id": pack["id"],
+            "course_pack_id": str(pack["id"]),
             "stripe_checkout_session_id": session.id,
             "amount_paid": None,
             "currency": "usd",
@@ -334,17 +357,15 @@ def create_checkout_session(request: CheckoutRequest):
     return CheckoutResponse(
         session_id=session.id,
         checkout_url=session.url,
-        course_pack_id=pack["id"],
+        course_pack_id=str(pack["id"]),
         status="pending",
     )
 
 
 @router.get("/user/{user_id}/purchases")
 def get_user_purchases(user_id: str):
-    if not _is_uuid(user_id):
-        raise HTTPException(status_code=422, detail="user_id must be a valid UUID")
-
     admin_client = _admin_client()
+    _ensure_purchase_tables_ready(admin_client)
 
     purchases = (
         admin_client.table("user_purchases")
@@ -367,18 +388,20 @@ def get_user_purchases(user_id: str):
     pack_map: Dict[str, Dict[str, Any]] = {}
 
     if pack_ids:
-        packs = (
-            admin_client.table("course_packs")
-            .select("id,name,slug,description,price,features,is_active")
-            .in_("id", pack_ids)
-            .execute()
-            .data
-            or []
-        )
-        pack_map = {pack["id"]: pack for pack in packs}
+        numeric_ids = [int(pid) for pid in pack_ids if _is_integer_identifier(str(pid))]
+        if numeric_ids:
+            packs = (
+                admin_client.table("course_packs")
+                .select("id,name,slug,description,price,features,is_active")
+                .in_("id", numeric_ids)
+                .execute()
+                .data
+                or []
+            )
+            pack_map = {str(pack["id"]): pack for pack in packs}
 
     for purchase in purchases:
-        purchase["course_pack"] = pack_map.get(purchase.get("course_pack_id"))
+        purchase["course_pack"] = pack_map.get(str(purchase.get("course_pack_id")))
 
     return {"purchases": purchases, "total": len(purchases)}
 

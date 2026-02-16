@@ -70,20 +70,40 @@ def to_cents(amount: Any) -> int:
 
 def fetch_course_packs() -> List[Dict[str, Any]]:
     supabase = get_supabase_admin_client()
-    response = (
-        supabase.table("course_packs")
-        .select(
-            "id,name,slug,description,price,is_active,stripe_product_id,stripe_price_id"
+
+    try:
+        response = (
+            supabase.table("course_packs")
+            .select(
+                "id,name,slug,description,price,is_active,stripe_product_id,stripe_price_id"
+            )
+            .eq("is_active", True)
+            .execute()
         )
-        .eq("is_active", True)
-        .execute()
-    )
-    return response.data or []
+        return response.data or []
+    except Exception as exc:  # pylint: disable=broad-except
+        message = str(exc)
+        if "stripe_product_id" in message or "stripe_price_id" in message:
+            raise RuntimeError(
+                "Supabase schema is missing Stripe columns on course_packs. "
+                "Run backend/migrations/003_store_payment_bootstrap.sql in Supabase SQL Editor."
+            ) from exc
+        raise
 
 
-def update_course_pack(pack_id: str, payload: Dict[str, str]) -> None:
+def update_course_pack(pack_id: Any, payload: Dict[str, str]) -> None:
     supabase = get_supabase_admin_client()
-    supabase.table("course_packs").update(payload).eq("id", pack_id).execute()
+
+    try:
+        supabase.table("course_packs").update(payload).eq("id", pack_id).execute()
+    except Exception as exc:  # pylint: disable=broad-except
+        message = str(exc)
+        if "stripe_product_id" in message or "stripe_price_id" in message:
+            raise RuntimeError(
+                "Supabase schema is missing Stripe columns on course_packs. "
+                "Run backend/migrations/003_store_payment_bootstrap.sql in Supabase SQL Editor."
+            ) from exc
+        raise
 
 
 def ensure_product(pack: Dict[str, Any], force: bool, dry_run: bool) -> str:
@@ -98,7 +118,7 @@ def ensure_product(pack: Dict[str, Any], force: bool, dry_run: bool) -> str:
         name=pack["name"],
         description=pack.get("description") or "",
         metadata={
-            "course_pack_id": pack["id"],
+            "course_pack_id": str(pack["id"]),
             "course_pack_slug": pack["slug"],
         },
     )
@@ -120,7 +140,7 @@ def ensure_price(
         unit_amount=to_cents(pack["price"]),
         currency=currency.lower(),
         metadata={
-            "course_pack_id": pack["id"],
+            "course_pack_id": str(pack["id"]),
             "course_pack_slug": pack["slug"],
         },
     )
@@ -142,6 +162,9 @@ def main() -> int:
     try:
         packs = fetch_course_packs()
     except SupabaseConfigError as exc:
+        print(f"Error: {exc}")
+        return 1
+    except RuntimeError as exc:
         print(f"Error: {exc}")
         return 1
 
