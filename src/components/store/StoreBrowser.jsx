@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ShoppingBag } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -13,14 +13,12 @@ import {
   fetchDegreePacks,
   fetchDegreePlans,
   fetchPack,
-  getClientUserId,
 } from "@/components/store/storeApi";
-import useUserPurchases from "@/hooks/useUserPurchases";
+import { useUserPurchasesContext } from "@/context/UserPurchasesContext";
 
 export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const userId = useMemo(() => getClientUserId(), []);
 
   const [degreePlans, setDegreePlans] = useState([]);
   const [degreePlansLoading, setDegreePlansLoading] = useState(true);
@@ -35,12 +33,13 @@ export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
   const [checkoutStatus, setCheckoutStatus] = useState(null);
 
   const {
+    userId,
     loading: purchasesLoading,
     error: purchasesError,
     refresh: refreshPurchases,
     isPackUnlocked,
     unlockedPackIds,
-  } = useUserPurchases(userId);
+  } = useUserPurchasesContext();
 
   const clearCheckoutQuery = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
@@ -254,3 +253,4 @@ export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
     </div>
   );
 }
+

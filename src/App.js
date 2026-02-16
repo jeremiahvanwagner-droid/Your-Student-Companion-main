@@ -4,6 +4,7 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-react";
 
 import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
+import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
 import { Toaster } from "@/components/ui/sonner";
 import { isOnboardingComplete } from "@/lib/onboarding";
 import Dashboard from "@/pages/Dashboard";
@@ -120,12 +121,16 @@ function AppAccessGuard({ children }) {
 }
 
 function AppRoutes({ withAuthGuard }) {
-  const appShellElement = withAuthGuard ? (
-    <AppAccessGuard>
+  const shellWithPurchases = (
+    <UserPurchasesProvider>
       <AppShell />
-    </AppAccessGuard>
+    </UserPurchasesProvider>
+  );
+
+  const appShellElement = withAuthGuard ? (
+    <AppAccessGuard>{shellWithPurchases}</AppAccessGuard>
   ) : (
-    <AppShell />
+    shellWithPurchases
   );
 
   return (
@@ -185,3 +190,4 @@ function App() {
 }
 
 export default App;
+
