@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import os
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 import stripe
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -54,6 +55,50 @@ def _amount_to_decimal(amount_in_cents: Optional[int]) -> Optional[float]:
     return float((Decimal(amount_in_cents) / Decimal(100)).quantize(Decimal("0.01")))
 
 
+def _is_uuid(value: Optional[str]) -> bool:
+    if not value:
+        return False
+
+    try:
+        UUID(str(value).strip())
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _resolve_app_user_id(admin_client, raw_user_id: Optional[str]) -> Optional[str]:
+    candidate = str(raw_user_id or "").strip()
+    if not candidate:
+        return None
+
+    if _is_uuid(candidate):
+        user_rows = (
+            admin_client.table("users")
+            .select("id")
+            .eq("id", candidate)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if user_rows:
+            return str(user_rows[0]["id"])
+
+    by_clerk = (
+        admin_client.table("users")
+        .select("id")
+        .eq("clerk_id", candidate)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if by_clerk:
+        return str(by_clerk[0]["id"])
+
+    return None
+
+
 def _normalize_subscription_status(status: Optional[str]) -> str:
     if not status:
         return "active"
@@ -90,11 +135,12 @@ def _upsert_subscription_from_stripe_subscription(subscription: Dict[str, Any]) 
     admin_client = _admin_client()
 
     metadata = subscription.get("metadata") or {}
-    user_id = metadata.get("user_id")
+    raw_user_id = metadata.get("user_id")
+    user_id = _resolve_app_user_id(admin_client, raw_user_id)
     if not user_id:
         return {
             "updated": False,
-            "reason": "Subscription metadata missing user_id",
+            "reason": "Subscription metadata missing resolvable user_id",
         }
 
     payload = {
@@ -134,13 +180,14 @@ def _upsert_purchase_from_checkout_session(session: Dict[str, Any]) -> Dict[str,
     admin_client = _admin_client()
 
     metadata = session.get("metadata") or {}
-    user_id = metadata.get("user_id") or session.get("client_reference_id")
+    raw_user_id = metadata.get("user_id") or session.get("client_reference_id")
+    user_id = _resolve_app_user_id(admin_client, raw_user_id)
     course_pack_id = metadata.get("course_pack_id")
 
     if not user_id or not course_pack_id:
         return {
             "updated": False,
-            "reason": "Session metadata missing user_id or course_pack_id",
+            "reason": "Session metadata missing resolvable user_id or course_pack_id",
         }
 
     status = "completed" if session.get("payment_status") == "paid" else "pending"

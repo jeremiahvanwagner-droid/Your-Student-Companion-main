@@ -1,5 +1,17 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+
+def _allowed_origins() -> list[str]:
+    raw = os.getenv("CORS_ALLOWED_ORIGINS") or os.getenv("FRONTEND_BASE_URL")
+    if not raw:
+        return ["http://localhost:3000"]
+
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["http://localhost:3000"]
+
 
 app = FastAPI(
     title="Student Companion API",
@@ -10,10 +22,10 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
 )
 
 # Import and include routers
@@ -65,6 +77,8 @@ async def root():
             "store": "/api/store",
             "stripe_webhook": "/api/store/webhook",
             "users_resolve": "/api/users/resolve",
+            "users_me": "/api/users/me",
+            "users_me_profile": "/api/users/me/profile",
             "users_profile": "/api/users/profile/{user_id}",
             "health": "/health",
         },

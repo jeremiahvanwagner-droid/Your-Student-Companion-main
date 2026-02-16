@@ -16,6 +16,7 @@ import secrets
 import string
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import requests
 import stripe
@@ -75,33 +76,138 @@ def random_suffix(length: int = 8) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _supabase_admin_headers(env: Env) -> dict[str, str]:
+    return {
+        "apikey": env.service_role_key,
+        "authorization": f"Bearer {env.service_role_key}",
+        "content-type": "application/json",
+    }
+
+
+def create_temp_validation_user(env: Env, supabase) -> dict[str, Any]:
+    suffix = random_suffix(10)
+    email = f"webhook-validate-{suffix}@example.com"
+    clerk_id = f"clerk_webhook_validate_{suffix}"
+
+    auth_response = requests.post(
+        env.supabase_url.rstrip("/") + "/auth/v1/admin/users",
+        headers=_supabase_admin_headers(env),
+        json={
+            "email": email,
+            "email_confirm": True,
+            "user_metadata": {"source": "ysc-webhook-validation"},
+        },
+        timeout=30,
+    )
+
+    if auth_response.status_code >= 300:
+        raise RuntimeError(
+            f"Failed to create temp auth user: {auth_response.status_code} {auth_response.text[:300]}"
+        )
+
+    auth_user = auth_response.json()
+    auth_user_id = auth_user.get("id")
+    if not auth_user_id:
+        raise RuntimeError("Temp auth user creation returned no id.")
+
+    supabase.table("users").upsert(
+        {
+            "id": auth_user_id,
+            "email": email,
+            "clerk_id": clerk_id,
+            "role": "student",
+        }
+    ).execute()
+
+    return {"id": auth_user_id, "email": email, "clerk_id": clerk_id}
+
+
+def cleanup_temp_validation_user(env: Env, supabase, user_id: str) -> None:
+    try:
+        supabase.table("user_subscriptions").delete().eq("user_id", user_id).execute()
+        supabase.table("user_purchases").delete().eq("user_id", user_id).execute()
+        supabase.table("student_profiles").delete().eq("user_id", user_id).execute()
+        supabase.table("users").delete().eq("id", user_id).execute()
+    except Exception:
+        pass
+
+    try:
+        requests.delete(
+            env.supabase_url.rstrip("/") + f"/auth/v1/admin/users/{user_id}",
+            headers=_supabase_admin_headers(env),
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+
 def main() -> None:
     env = load_env()
 
     stripe.api_key = env.stripe_secret_key
     supabase = create_client(env.supabase_url, env.service_role_key)
+    created_temp_user = False
+    temp_user_id: str | None = None
 
-    print("Step 1/5: Finding a purchasable course pack...")
-    packs = (
-        supabase.table("course_packs")
-        .select("id,stripe_price_id")
-        .not_.is_("stripe_price_id", "null")
+    print("Step 1/6: Selecting an existing application user (UUID)...")
+    users = (
+        supabase.table("users")
+        .select("id,clerk_id,email")
         .limit(1)
         .execute()
         .data
         or []
     )
 
-    if not packs:
-        raise RuntimeError("No course pack with stripe_price_id found.")
+    if not users:
+        print("No existing users found. Bootstrapping a temporary validation user...")
+        temp_user = create_temp_validation_user(env, supabase)
+        created_temp_user = True
+        temp_user_id = str(temp_user["id"])
+        users = [temp_user]
 
-    pack_id = str(packs[0]["id"])
-    price_id = packs[0]["stripe_price_id"]
+    user_id = str(users[0]["id"])
+    print(f"Using app user_id: {user_id}")
+
+    print("Step 2/6: Finding a purchasable course pack not already owned by that user...")
+    owned_pack_ids = {
+        str(row.get("course_pack_id"))
+        for row in (
+            supabase.table("user_purchases")
+            .select("course_pack_id")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+        if row.get("course_pack_id") is not None
+    }
+
+    packs = (
+        supabase.table("course_packs")
+        .select("id,stripe_price_id")
+        .not_.is_("stripe_price_id", "null")
+        .execute()
+        .data
+        or []
+    )
+
+    candidate_pack = next(
+        (pack for pack in packs if str(pack.get("id")) not in owned_pack_ids),
+        None,
+    )
+
+    if not candidate_pack:
+        raise RuntimeError(
+            "No unused course pack found for selected user. Use another user or clear a test purchase row."
+        )
+
+    pack_id = str(candidate_pack["id"])
+    price_id = candidate_pack["stripe_price_id"]
 
     suffix = random_suffix()
-    user_id = f"edge_validate_{suffix}"
 
-    print("Step 2/5: Creating Stripe Checkout Session...")
+    print("Step 3/6: Creating Stripe Checkout Session...")
     session = stripe.checkout.Session.create(
         mode="payment",
         payment_method_types=["card"],
@@ -117,7 +223,7 @@ def main() -> None:
         },
     )
 
-    print("Step 3/5: Posting signed webhook payload to Supabase Edge function...")
+    print("Step 4/6: Posting signed webhook payload to Supabase Edge function...")
     webhook_url = env.supabase_url.rstrip("/") + "/functions/v1/stripe-webhook"
     event = {
         "id": f"evt_validate_{suffix}",
@@ -148,7 +254,7 @@ def main() -> None:
     print(f"Webhook response: {response.status_code}")
     print(response.text[:300])
 
-    print("Step 4/5: Checking public.user_purchases...")
+    print("Step 5/6: Checking public.user_purchases...")
     rows = (
         supabase.table("user_purchases")
         .select(
@@ -156,6 +262,7 @@ def main() -> None:
         )
         .eq("user_id", user_id)
         .eq("course_pack_id", pack_id)
+        .eq("stripe_checkout_session_id", session.id)
         .limit(1)
         .execute()
         .data
@@ -167,18 +274,22 @@ def main() -> None:
         print(json.dumps(rows[0], indent=2, default=str))
     else:
         print("Validation result: FAIL")
-        print("No matching row written to public.user_purchases.")
+        print("No matching row written to public.user_purchases for this checkout session.")
 
-    print("Step 5/5: Cleanup")
+    print("Step 6/6: Cleanup")
     if rows:
         supabase.table("user_purchases").delete().eq("user_id", user_id).eq(
             "course_pack_id", pack_id
-        ).execute()
+        ).eq("stripe_checkout_session_id", session.id).execute()
 
     try:
         stripe.checkout.Session.expire(session.id)
     except Exception:
         pass
+
+    if created_temp_user and temp_user_id:
+        print("Cleaning up temporary validation user...")
+        cleanup_temp_validation_user(env, supabase, temp_user_id)
 
 
 if __name__ == "__main__":

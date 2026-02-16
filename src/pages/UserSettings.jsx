@@ -1,20 +1,34 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { RotateCcw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { setOnboardingComplete } from "@/lib/onboarding";
+import { persistMyStudentProfile, setOnboardingComplete } from "@/lib/onboarding";
 
 export default function UserSettings() {
   const navigate = useNavigate();
+  const [resetting, setResetting] = useState(false);
 
-  const restartOnboarding = () => {
-    setOnboardingComplete(false);
-    toast.info("Onboarding reset", {
-      description: "You can complete onboarding again to refresh your student profile.",
-    });
-    navigate("/app/onboarding");
+  const restartOnboarding = async () => {
+    setResetting(true);
+
+    try {
+      await persistMyStudentProfile({ onboarding_completed: false });
+      setOnboardingComplete(false);
+
+      toast.info("Onboarding reset", {
+        description: "You can complete onboarding again to refresh your student profile.",
+      });
+      navigate("/app/onboarding");
+    } catch (error) {
+      toast.error("Could not reset onboarding", {
+        description: error?.message || "Please try again.",
+      });
+    } finally {
+      setResetting(false);
+    }
   };
 
   return (
@@ -33,9 +47,9 @@ export default function UserSettings() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>Theme, timezone, notifications, and study preferences will be connected to `student_profiles`.</p>
-          <Button variant="outline" className="border-border/50" onClick={restartOnboarding}>
+          <Button variant="outline" className="border-border/50" onClick={restartOnboarding} disabled={resetting}>
             <RotateCcw className="mr-2 h-4 w-4" />
-            Restart Onboarding
+            {resetting ? "Resetting..." : "Restart Onboarding"}
           </Button>
         </CardContent>
       </Card>

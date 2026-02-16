@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUserPurchasesContext } from "@/context/UserPurchasesContext";
 import {
-  fetchStudentProfile,
+  fetchMyStudentProfile,
   getOnboardingProfile,
-  persistStudentProfile,
+  persistMyStudentProfile,
   setOnboardingComplete,
   setOnboardingProfile,
 } from "@/lib/onboarding";
@@ -31,13 +31,6 @@ const DEFAULT_PROFILE = {
   study_preferences: "",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
 };
-
-const USER_ID_UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(value) {
-  return USER_ID_UUID_REGEX.test(String(value || "").trim());
-}
 
 function parseSubjects(rawSubjects) {
   return String(rawSubjects || "")
@@ -83,7 +76,7 @@ function mapRemoteProfileToForm(remoteProfile) {
 
 export default function OnboardingFlow() {
   const navigate = useNavigate();
-  const { userId, identityLoading, identityError } = useUserPurchasesContext();
+  const { identityLoading, identityError } = useUserPurchasesContext();
 
   const [step, setStep] = useState(0);
   const [profile, setProfile] = useState(() => ({
@@ -103,18 +96,11 @@ export default function OnboardingFlow() {
       };
     }
 
-    if (!isUuid(userId)) {
-      setRemoteProfileChecked(true);
-      return () => {
-        isMounted = false;
-      };
-    }
-
     const loadRemoteProfile = async () => {
       setIsLoadingRemoteProfile(true);
 
       try {
-        const payload = await fetchStudentProfile(userId);
+        const payload = await fetchMyStudentProfile();
         const remoteProfile = payload?.profile;
         const mappedProfile = mapRemoteProfileToForm(remoteProfile);
 
@@ -150,7 +136,7 @@ export default function OnboardingFlow() {
     return () => {
       isMounted = false;
     };
-  }, [identityLoading, remoteProfileChecked, userId]);
+  }, [identityLoading, remoteProfileChecked]);
 
   const canProceed = useMemo(() => {
     if (step === 0) {
@@ -188,7 +174,7 @@ export default function OnboardingFlow() {
       return;
     }
 
-    if (identityLoading || !isUuid(userId)) {
+    if (identityLoading) {
       toast.error("Your account is still syncing.", {
         description: "Please wait a moment and try again.",
       });
@@ -207,7 +193,7 @@ export default function OnboardingFlow() {
     setIsSaving(true);
 
     try {
-      await persistStudentProfile(userId, {
+      await persistMyStudentProfile({
         grade_level: normalizedProfile.grade_level,
         weekly_goal_hours: normalizedProfile.weekly_goal_hours,
         timezone: normalizedProfile.timezone,

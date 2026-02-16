@@ -1,4 +1,5 @@
 import "@/App.css";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ClerkProvider, useAuth } from "@clerk/clerk-react";
 
@@ -6,7 +7,12 @@ import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
 import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
 import { Toaster } from "@/components/ui/sonner";
-import { isOnboardingComplete } from "@/lib/onboarding";
+import {
+  fetchMyStudentProfile,
+  isOnboardingComplete,
+  resolveCurrentAppUser,
+  setOnboardingComplete,
+} from "@/lib/onboarding";
 import Dashboard from "@/pages/Dashboard";
 import FocusPage from "@/pages/FocusPage";
 import HomePage from "@/pages/HomePage";
@@ -22,7 +28,9 @@ import TaskManager from "@/pages/TaskManager";
 import UserSettings from "@/pages/UserSettings";
 import WeeklyReport from "@/pages/WeeklyReport";
 
-const clerkPubKey = process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
+const clerkPubKey =
+  process.env.REACT_APP_CLERK_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 const clerkAppearance = {
   baseTheme: undefined,
@@ -97,8 +105,66 @@ function LoadingScreen() {
 function AppAccessGuard({ children }) {
   const { isLoaded, isSignedIn } = useAuth();
   const location = useLocation();
+  const [onboardingState, setOnboardingState] = useState({
+    loading: true,
+    completed: false,
+  });
 
-  if (!isLoaded) {
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!isLoaded) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (!isSignedIn) {
+      if (isMounted) {
+        setOnboardingState({
+          loading: false,
+          completed: false,
+        });
+      }
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const loadOnboardingStatus = async () => {
+      setOnboardingState((prev) => ({ ...prev, loading: true }));
+
+      try {
+        await resolveCurrentAppUser();
+        const payload = await fetchMyStudentProfile();
+        const completed = Boolean(payload?.profile?.onboarding_completed);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setOnboardingComplete(completed);
+        setOnboardingState({ loading: false, completed });
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setOnboardingState({
+          loading: false,
+          completed: isOnboardingComplete(),
+        });
+      }
+    };
+
+    loadOnboardingStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isLoaded, isSignedIn, location.pathname]);
+
+  if (!isLoaded || onboardingState.loading) {
     return <LoadingScreen />;
   }
 
@@ -106,7 +172,7 @@ function AppAccessGuard({ children }) {
     return <Navigate to="/" replace />;
   }
 
-  const onboardingDone = isOnboardingComplete();
+  const onboardingDone = onboardingState.completed;
   const onOnboardingRoute = location.pathname === "/app/onboarding";
 
   if (!onboardingDone && !onOnboardingRoute) {
@@ -165,7 +231,7 @@ function AppRoutes({ withAuthGuard }) {
 
 function App() {
   if (!clerkPubKey) {
-    console.warn("[Clerk] No publishable key found. Set REACT_APP_CLERK_PUBLISHABLE_KEY in .env");
+    console.warn("[Clerk] No publishable key found. Set REACT_APP_CLERK_PUBLISHABLE_KEY in .env.local");
 
     return (
       <div className="min-h-screen bg-background text-foreground">
@@ -190,4 +256,3 @@ function App() {
 }
 
 export default App;
-

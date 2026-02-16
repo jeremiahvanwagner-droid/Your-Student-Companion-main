@@ -6,16 +6,18 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 import stripe
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from lib.audit import write_audit_log
+from lib.clerk_auth import AppAuthContext, ensure_owner_or_admin, get_app_auth_context
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 router = APIRouter(prefix="/api/store", tags=["Store"])
 
 
 class CheckoutRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     course_pack_id: str
     success_url: str
     cancel_url: str
@@ -326,9 +328,25 @@ def get_pack_details(pack_id: str):
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
-def create_checkout_session(request: CheckoutRequest):
-    if not request.user_id:
-        raise HTTPException(status_code=422, detail="user_id is required")
+def create_checkout_session(
+    request: CheckoutRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    target_user_id = auth.app_user_id
+
+    if request.user_id:
+        supplied_user_id = str(request.user_id).strip()
+        if supplied_user_id != auth.app_user_id and not auth.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: user_id does not match authenticated user",
+            )
+
+        if auth.is_admin:
+            target_user_id = supplied_user_id
+
+    if not _is_uuid(target_user_id):
+        raise HTTPException(status_code=422, detail="Resolved user_id must be a UUID")
 
     admin_client = _admin_client()
     _ensure_purchase_tables_ready(admin_client)
@@ -348,7 +366,7 @@ def create_checkout_session(request: CheckoutRequest):
     existing_completed = (
         admin_client.table("user_purchases")
         .select("id,status")
-        .eq("user_id", request.user_id)
+        .eq("user_id", target_user_id)
         .eq("course_pack_id", str(pack["id"]))
         .eq("status", "completed")
         .limit(1)
@@ -366,10 +384,10 @@ def create_checkout_session(request: CheckoutRequest):
             line_items=[{"price": pack["stripe_price_id"], "quantity": request.quantity}],
             success_url=request.success_url,
             cancel_url=request.cancel_url,
-            client_reference_id=request.user_id,
+            client_reference_id=target_user_id,
             allow_promotion_codes=True,
             metadata={
-                "user_id": request.user_id,
+                "user_id": target_user_id,
                 "course_pack_id": str(pack["id"]),
                 "course_pack_slug": pack["slug"],
             },
@@ -382,7 +400,7 @@ def create_checkout_session(request: CheckoutRequest):
 
     admin_client.table("user_purchases").upsert(
         {
-            "user_id": request.user_id,
+            "user_id": target_user_id,
             "course_pack_id": str(pack["id"]),
             "stripe_checkout_session_id": session.id,
             "amount_paid": None,
@@ -391,6 +409,18 @@ def create_checkout_session(request: CheckoutRequest):
         },
         on_conflict="user_id,course_pack_id",
     ).execute()
+
+    write_audit_log(
+        admin_client,
+        actor_id=auth.app_user_id,
+        action="store.checkout.create",
+        entity_type="user_purchases",
+        metadata={
+            "target_user_id": target_user_id,
+            "course_pack_id": str(pack["id"]),
+            "stripe_checkout_session_id": session.id,
+        },
+    )
 
     return CheckoutResponse(
         session_id=session.id,
@@ -401,7 +431,13 @@ def create_checkout_session(request: CheckoutRequest):
 
 
 @router.get("/user/{user_id}/purchases")
-def get_user_purchases(user_id: str):
+def get_user_purchases(
+    user_id: str,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    normalized_user_id = str(user_id).strip()
+    ensure_owner_or_admin(auth, normalized_user_id)
+
     admin_client = _admin_client()
     _ensure_purchase_tables_ready(admin_client)
 
@@ -411,7 +447,7 @@ def get_user_purchases(user_id: str):
             "id,user_id,course_pack_id,stripe_checkout_session_id,stripe_payment_intent_id,"
             "amount_paid,currency,status,purchased_at"
         )
-        .eq("user_id", user_id)
+        .eq("user_id", normalized_user_id)
         .order("purchased_at", desc=True)
         .execute()
         .data
@@ -484,13 +520,13 @@ def get_featured_packs(limit: int = 6):
 
 
 @router.post("/purchase")
-def purchase_pack_legacy(request: LegacyPurchaseRequest):
+def purchase_pack_legacy(
+    request: LegacyPurchaseRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
     """
     Backward-compatible endpoint retained while frontend migrates to /checkout.
     """
-    if not request.user_id:
-        raise HTTPException(status_code=400, detail="user_id is required for checkout")
-
     frontend_base_url = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
     success_url = request.success_url or f"{frontend_base_url}/app/store?checkout=success"
     cancel_url = request.cancel_url or f"{frontend_base_url}/app/store?checkout=cancel"
@@ -503,7 +539,7 @@ def purchase_pack_legacy(request: LegacyPurchaseRequest):
         quantity=1,
     )
 
-    checkout_response = create_checkout_session(checkout_request)
+    checkout_response = create_checkout_session(checkout_request, auth)
 
     return {
         "success": True,

@@ -27,7 +27,7 @@ export default function useUserPurchases(userId) {
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
-    if (!userId) {
+    if (!userId || String(userId).startsWith("guest_")) {
       setPurchases([]);
       return;
     }

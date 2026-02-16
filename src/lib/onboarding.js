@@ -7,6 +7,34 @@ function ensureBrowserStorage() {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
+async function getClerkSessionToken() {
+  const session = window?.Clerk?.session;
+  if (!session?.getToken) {
+    return null;
+  }
+
+  try {
+    return await session.getToken();
+  } catch {
+    return null;
+  }
+}
+
+async function authHeaders(requireAuth = true) {
+  const token = await getClerkSessionToken();
+  if (!token && requireAuth) {
+    throw new Error("Authentication required. Please sign in again.");
+  }
+
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 async function handleApiResponse(response, fallbackMessage) {
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: fallbackMessage }));
@@ -57,16 +85,71 @@ export function setOnboardingComplete(completed) {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, completed ? "true" : "false");
 }
 
+export async function resolveCurrentAppUser() {
+  const headers = await authHeaders();
+
+  const clerkUser = window?.Clerk?.user;
+  const email =
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    null;
+
+  const payload = {
+    clerk_user_id: clerkUser?.id || undefined,
+    email,
+    first_name: clerkUser?.firstName || undefined,
+    last_name: clerkUser?.lastName || undefined,
+  };
+
+  const response = await fetch(`${API_BASE_URL}/api/users/resolve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleApiResponse(response, "Failed to resolve application user.");
+}
+
+export async function fetchMyStudentProfile() {
+  const headers = await authHeaders();
+  const response = await fetch(`${API_BASE_URL}/api/users/me/profile`, {
+    headers,
+  });
+  return handleApiResponse(response, "Failed to load student profile.");
+}
+
+export async function persistMyStudentProfile(payload) {
+  const headers = await authHeaders();
+  const response = await fetch(`${API_BASE_URL}/api/users/me/profile`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+
+  return handleApiResponse(response, "Failed to save student profile.");
+}
+
 export async function fetchStudentProfile(userId) {
-  const response = await fetch(`${API_BASE_URL}/api/users/profile/${encodeURIComponent(userId)}`);
+  const headers = await authHeaders();
+  const response = await fetch(`${API_BASE_URL}/api/users/profile/${encodeURIComponent(userId)}`, {
+    headers,
+  });
   return handleApiResponse(response, "Failed to load student profile.");
 }
 
 export async function persistStudentProfile(userId, payload) {
+  const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/api/users/profile/${encodeURIComponent(userId)}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
+      ...headers,
     },
     body: JSON.stringify(payload || {}),
   });

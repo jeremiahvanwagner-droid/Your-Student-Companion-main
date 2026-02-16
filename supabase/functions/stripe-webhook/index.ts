@@ -58,6 +58,55 @@ function normalizeSubscriptionStatus(status?: string | null): string {
   return statusMap[status] ?? status;
 }
 
+function isUuid(value?: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim()
+  );
+}
+
+async function resolveAppUserId(rawUserId?: string | null): Promise<string | null> {
+  const candidate = (rawUserId ?? "").trim();
+  if (!candidate) {
+    return null;
+  }
+
+  if (isUuid(candidate)) {
+    const { data: byId, error: byIdError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", candidate)
+      .limit(1);
+
+    if (byIdError) {
+      throw new Error(`users lookup by id failed: ${byIdError.message}`);
+    }
+
+    if ((byId ?? [])[0]?.id) {
+      return String(byId[0].id);
+    }
+  }
+
+  const { data: byClerk, error: byClerkError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("clerk_id", candidate)
+    .limit(1);
+
+  if (byClerkError) {
+    throw new Error(`users lookup by clerk_id failed: ${byClerkError.message}`);
+  }
+
+  if ((byClerk ?? [])[0]?.id) {
+    return String(byClerk[0].id);
+  }
+
+  return null;
+}
+
 function inferPlanType(
   subscription: Stripe.Subscription,
   metadata: Record<string, string>
@@ -81,12 +130,12 @@ async function upsertSubscriptionFromStripeSubscription(
   userIdFallback?: string | null
 ): Promise<{ updated: boolean; reason?: string; stripe_subscription_id?: string; status?: string }> {
   const metadata = (subscription.metadata ?? {}) as Record<string, string>;
-  const userId = metadata.user_id ?? userIdFallback ?? null;
+  const userId = await resolveAppUserId(metadata.user_id ?? userIdFallback ?? null);
 
   if (!userId) {
     return {
       updated: false,
-      reason: "Subscription metadata missing user_id",
+      reason: "Subscription metadata missing resolvable user_id",
     };
   }
 
@@ -118,13 +167,15 @@ async function upsertPurchaseFromCheckoutSession(
   session: Stripe.Checkout.Session
 ): Promise<Record<string, unknown>> {
   const metadata = (session.metadata ?? {}) as Record<string, string>;
-  const userId = metadata.user_id ?? session.client_reference_id ?? null;
+  const userId = await resolveAppUserId(
+    metadata.user_id ?? session.client_reference_id ?? null
+  );
   const coursePackId = metadata.course_pack_id ?? null;
 
   if (!userId || !coursePackId) {
     return {
       updated: false,
-      reason: "Session metadata missing user_id or course_pack_id",
+      reason: "Session metadata missing resolvable user_id or course_pack_id",
     };
   }
 

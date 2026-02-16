@@ -13,6 +13,35 @@ function handleResponse(response, fallbackMessage) {
   return response.json();
 }
 
+async function getClerkSessionToken() {
+  const session = window?.Clerk?.session;
+  if (!session?.getToken) {
+    return null;
+  }
+
+  try {
+    return await session.getToken();
+  } catch {
+    return null;
+  }
+}
+
+async function withAuthHeaders(baseHeaders = {}, requireAuth = true) {
+  const token = await getClerkSessionToken();
+  if (!token && requireAuth) {
+    throw new Error("Authentication required. Please sign in again.");
+  }
+
+  if (!token) {
+    return { ...baseHeaders };
+  }
+
+  return {
+    ...baseHeaders,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export async function fetchDegreePlans() {
   const response = await fetch(`${API_BASE_URL}/api/store/degree-plans`);
   return handleResponse(response, "Failed to load degree plans.");
@@ -31,11 +60,13 @@ export async function fetchPack(packId) {
 }
 
 export async function createCheckoutSession(payload) {
+  const headers = await withAuthHeaders({
+    "Content-Type": "application/json",
+  });
+
   const response = await fetch(`${API_BASE_URL}/api/store/checkout`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -43,8 +74,13 @@ export async function createCheckoutSession(payload) {
 }
 
 export async function fetchUserPurchases(userId) {
+  const headers = await withAuthHeaders();
+
   const response = await fetch(
-    `${API_BASE_URL}/api/store/user/${encodeURIComponent(userId)}/purchases`
+    `${API_BASE_URL}/api/store/user/${encodeURIComponent(userId)}/purchases`,
+    {
+      headers,
+    }
   );
   return handleResponse(response, "Failed to load user purchases.");
 }
@@ -74,7 +110,7 @@ export function getGuestUserId() {
 
   const generated =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
+      ? `guest_${crypto.randomUUID()}`
       : `guest_${Date.now()}`;
 
   localStorage.setItem(storageKey, generated);
@@ -91,11 +127,13 @@ export function getClientUserId() {
 }
 
 export async function resolveAppUser(payload) {
+  const headers = await withAuthHeaders({
+    "Content-Type": "application/json",
+  });
+
   const response = await fetch(`${API_BASE_URL}/api/users/resolve`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 

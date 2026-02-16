@@ -1,10 +1,11 @@
 import { useAuth } from "@clerk/clerk-react";
 import { Navigate } from "react-router-dom";
 
-import { isOnboardingComplete } from "@/lib/onboarding";
 import LandingPage from "@/pages/LandingPage";
 
-const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY);
+const isClerkConfigured = Boolean(
+  process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+);
 
 function GatekeeperContent() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -26,8 +27,7 @@ function GatekeeperContent() {
     return <LandingPage />;
   }
 
-  const onboardingDone = isOnboardingComplete();
-  return <Navigate to={onboardingDone ? "/app/dashboard" : "/app/onboarding"} replace />;
+  return <Navigate to="/app" replace />;
 }
 
 export default function Gatekeeper() {

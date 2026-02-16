@@ -6,7 +6,7 @@ import BottomNav from "@/components/layout/BottomNav";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY);
+const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const MAIN_NAV = [
   { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },

@@ -33,7 +33,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 // Check if Clerk is configured
-const isClerkConfigured = !!process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
+const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 // Safe auth hook that returns defaults when Clerk is not configured
 const useSafeAuth = () => {

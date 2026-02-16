@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from lib.audit import write_audit_log
+from lib.clerk_auth import (
+    AppAuthContext,
+    ClerkAuthContext,
+    ensure_owner_or_admin,
+    get_app_auth_context,
+    get_clerk_auth_context,
+)
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
 class ResolveUserRequest(BaseModel):
-    clerk_user_id: str = Field(min_length=3, max_length=128)
+    clerk_user_id: Optional[str] = Field(default=None, min_length=3, max_length=128)
     email: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -69,7 +77,7 @@ def _normalize_email(clerk_user_id: str, email: Optional[str]) -> str:
 def _find_public_user_by_clerk_id(admin_client, clerk_user_id: str):
     rows = (
         admin_client.table("users")
-        .select("id,clerk_id,email")
+        .select("id,clerk_id,email,role")
         .eq("clerk_id", clerk_user_id)
         .limit(1)
         .execute()
@@ -79,18 +87,24 @@ def _find_public_user_by_clerk_id(admin_client, clerk_user_id: str):
     return rows[0] if rows else None
 
 
-def _ensure_public_user_exists(admin_client, user_id: str) -> None:
+def _find_public_user_by_id(admin_client, user_id: str):
     rows = (
         admin_client.table("users")
-        .select("id")
+        .select("id,clerk_id,email,role")
         .eq("id", user_id)
         .limit(1)
         .execute()
         .data
         or []
     )
-    if not rows:
+    return rows[0] if rows else None
+
+
+def _ensure_public_user_exists(admin_client, user_id: str) -> Dict[str, Any]:
+    user_row = _find_public_user_by_id(admin_client, user_id)
+    if not user_row:
         raise HTTPException(status_code=404, detail="User not found in public.users")
+    return user_row
 
 
 def _fetch_student_profile(admin_client, user_id: str) -> Optional[Dict[str, Any]]:
@@ -118,6 +132,33 @@ def _clean_profile_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         cleaned["study_preferences"] = {}
 
     return cleaned
+
+
+def _upsert_student_profile(
+    admin_client,
+    *,
+    user_id: str,
+    payload: Dict[str, Any],
+) -> Tuple[Dict[str, Any], bool]:
+    existing = _fetch_student_profile(admin_client, user_id)
+    created = existing is None
+
+    if existing:
+        updated_rows = (
+            admin_client.table("student_profiles")
+            .update(payload)
+            .eq("id", existing["id"])
+            .execute()
+            .data
+            or []
+        )
+        profile = updated_rows[0] if updated_rows else _fetch_student_profile(admin_client, user_id)
+        return profile, created
+
+    insert_payload = {"user_id": user_id, **payload}
+    inserted_rows = admin_client.table("student_profiles").insert(insert_payload).execute().data or []
+    profile = inserted_rows[0] if inserted_rows else _fetch_student_profile(admin_client, user_id)
+    return profile, created
 
 
 def _create_auth_user(
@@ -170,15 +211,30 @@ def _create_auth_user(
 
 
 @router.post("/resolve", response_model=ResolveUserResponse)
-def resolve_user(request: ResolveUserRequest):
-    admin_client = _admin_client()
-    clerk_user_id = request.clerk_user_id.strip()
+def resolve_user(
+    request: ResolveUserRequest,
+    auth: ClerkAuthContext = Depends(get_clerk_auth_context),
+):
+    requested_id = (request.clerk_user_id or "").strip()
+    if requested_id and requested_id != auth.clerk_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: request clerk_user_id does not match authenticated token subject",
+        )
 
-    if not clerk_user_id.startswith("user_"):
-        raise HTTPException(status_code=422, detail="Invalid clerk_user_id format")
+    clerk_user_id = auth.clerk_user_id
+    admin_client = _admin_client()
 
     existing = _find_public_user_by_clerk_id(admin_client, clerk_user_id)
     if existing:
+        write_audit_log(
+            admin_client,
+            actor_id=str(existing["id"]),
+            action="users.resolve",
+            entity_type="users",
+            entity_id=str(existing["id"]),
+            metadata={"created": False, "clerk_user_id": clerk_user_id},
+        )
         return ResolveUserResponse(
             user_id=str(existing["id"]),
             clerk_user_id=clerk_user_id,
@@ -186,7 +242,7 @@ def resolve_user(request: ResolveUserRequest):
         )
 
     app_user_id = str(uuid4())
-    normalized_email = _normalize_email(clerk_user_id, request.email)
+    normalized_email = _normalize_email(clerk_user_id, request.email or auth.email)
 
     _create_auth_user(
         admin_client=admin_client,
@@ -202,7 +258,7 @@ def resolve_user(request: ResolveUserRequest):
             {
                 "id": app_user_id,
                 "clerk_id": clerk_user_id,
-                "email": (request.email or "").strip().lower() or normalized_email,
+                "email": (request.email or auth.email or "").strip().lower() or normalized_email,
                 "role": "student",
             }
         ).execute()
@@ -217,50 +273,119 @@ def resolve_user(request: ResolveUserRequest):
 
         raise HTTPException(status_code=500, detail=f"Failed to create user record: {exc}") from exc
 
+    write_audit_log(
+        admin_client,
+        actor_id=app_user_id,
+        action="users.resolve",
+        entity_type="users",
+        entity_id=app_user_id,
+        metadata={"created": True, "clerk_user_id": clerk_user_id},
+    )
+
     return ResolveUserResponse(user_id=app_user_id, clerk_user_id=clerk_user_id, created=True)
 
 
-@router.get("/profile/{user_id}")
-def get_student_profile(user_id: str):
-    admin_client = _admin_client()
-    parsed_user_id = _parse_uuid_or_422(user_id, "user_id")
+@router.get("/me")
+def get_me(auth: AppAuthContext = Depends(get_app_auth_context)):
+    return {
+        "user": {
+            "id": auth.app_user_id,
+            "clerk_user_id": auth.clerk_user_id,
+            "email": auth.email,
+            "role": auth.role,
+        }
+    }
 
+
+@router.get("/me/profile")
+def get_my_student_profile(auth: AppAuthContext = Depends(get_app_auth_context)):
+    admin_client = _admin_client()
+    profile = _fetch_student_profile(admin_client, auth.app_user_id)
+    return {"profile": profile}
+
+
+@router.put("/me/profile")
+def upsert_my_student_profile(
+    request: StudentProfileUpsertRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    admin_client = _admin_client()
+    _ensure_public_user_exists(admin_client, auth.app_user_id)
+
+    payload = _clean_profile_payload(request.model_dump(exclude_none=True))
+    if not payload:
+        raise HTTPException(status_code=400, detail="No profile fields were provided")
+
+    try:
+        profile, created = _upsert_student_profile(
+            admin_client,
+            user_id=auth.app_user_id,
+            payload=payload,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=500, detail=f"Failed to persist student profile: {exc}") from exc
+
+    write_audit_log(
+        admin_client,
+        actor_id=auth.app_user_id,
+        action="student_profiles.upsert",
+        entity_type="student_profiles",
+        entity_id=str(profile.get("id")) if profile else None,
+        metadata={"created": created},
+    )
+
+    return {"profile": profile, "created": created}
+
+
+@router.get("/profile/{user_id}")
+def get_student_profile(
+    user_id: str,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    parsed_user_id = _parse_uuid_or_422(user_id, "user_id")
+    ensure_owner_or_admin(auth, parsed_user_id)
+
+    admin_client = _admin_client()
     profile = _fetch_student_profile(admin_client, parsed_user_id)
     return {"profile": profile}
 
 
 @router.put("/profile/{user_id}")
-def upsert_student_profile(user_id: str, request: StudentProfileUpsertRequest):
-    admin_client = _admin_client()
+def upsert_student_profile(
+    user_id: str,
+    request: StudentProfileUpsertRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
     parsed_user_id = _parse_uuid_or_422(user_id, "user_id")
+    ensure_owner_or_admin(auth, parsed_user_id)
 
+    admin_client = _admin_client()
     _ensure_public_user_exists(admin_client, parsed_user_id)
 
-    payload = request.model_dump(exclude_none=True)
-    payload = _clean_profile_payload(payload)
-
+    payload = _clean_profile_payload(request.model_dump(exclude_none=True))
     if not payload:
         raise HTTPException(status_code=400, detail="No profile fields were provided")
 
-    existing = _fetch_student_profile(admin_client, parsed_user_id)
-    created = existing is None
-
     try:
-        if existing:
-            updated_rows = (
-                admin_client.table("student_profiles")
-                .update(payload)
-                .eq("id", existing["id"])
-                .execute()
-                .data
-                or []
-            )
-            profile = updated_rows[0] if updated_rows else _fetch_student_profile(admin_client, parsed_user_id)
-        else:
-            insert_payload = {"user_id": parsed_user_id, **payload}
-            inserted_rows = admin_client.table("student_profiles").insert(insert_payload).execute().data or []
-            profile = inserted_rows[0] if inserted_rows else _fetch_student_profile(admin_client, parsed_user_id)
+        profile, created = _upsert_student_profile(
+            admin_client,
+            user_id=parsed_user_id,
+            payload=payload,
+        )
+    except HTTPException:
+        raise
     except Exception as exc:  # pylint: disable=broad-except
         raise HTTPException(status_code=500, detail=f"Failed to persist student profile: {exc}") from exc
+
+    write_audit_log(
+        admin_client,
+        actor_id=auth.app_user_id,
+        action="student_profiles.upsert",
+        entity_type="student_profiles",
+        entity_id=str(profile.get("id")) if profile else None,
+        metadata={"created": created, "target_user_id": parsed_user_id},
+    )
 
     return {"profile": profile, "created": created}
