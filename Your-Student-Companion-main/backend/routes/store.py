@@ -146,7 +146,7 @@ def get_degree_plans(include_inactive: bool = False):
     admin_client = _admin_client()
 
     degree_query = admin_client.table("degree_plans").select(
-        "id,name,slug,category,description,icon_name,is_active,created_at"
+        "id,name,slug,category,description,icon_name,is_active"
     )
     if not include_inactive:
         degree_query = degree_query.eq("is_active", True)
@@ -202,7 +202,7 @@ def get_degree_plan_packs(degree_slug: str, include_inactive: bool = False):
     admin_client = _admin_client()
 
     degree_query = admin_client.table("degree_plans").select(
-        "id,name,slug,category,description,icon_name,is_active,created_at"
+        "id,name,slug,category,description,icon_name,is_active"
     )
     degree_plan = degree_query.eq("slug", degree_slug).limit(1).execute().data or []
 
@@ -445,7 +445,7 @@ def get_featured_packs(limit: int = 6):
             "stripe_price_id,stripe_product_id,features,is_active,created_at"
         )
         .eq("is_active", True)
-        .order("created_at", desc=False)
+        .order("id")
         .limit(limit)
         .execute()
         .data
