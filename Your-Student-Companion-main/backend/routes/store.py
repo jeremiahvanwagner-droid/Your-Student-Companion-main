@@ -141,6 +141,44 @@ def _decimal_or_none(value: Optional[Decimal]) -> Optional[float]:
     return float(value)
 
 
+def _fetch_packs_for_purchase_ids(admin_client, pack_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+    unique_ids = sorted({str(pack_id) for pack_id in pack_ids if pack_id is not None})
+    if not unique_ids:
+        return {}
+
+    pack_map: Dict[str, Dict[str, Any]] = {}
+
+    # Prefer string identifiers to support UUID schemas.
+    try:
+        packs = (
+            admin_client.table("course_packs")
+            .select("id,name,slug,description,price,features,is_active")
+            .in_("id", unique_ids)
+            .execute()
+            .data
+            or []
+        )
+        pack_map = {str(pack["id"]): pack for pack in packs}
+    except Exception:  # pylint: disable=broad-except
+        pack_map = {}
+
+    # Compatibility fallback for integer IDs in legacy schemas.
+    if not pack_map:
+        numeric_ids = [int(pid) for pid in unique_ids if _is_integer_identifier(pid)]
+        if numeric_ids:
+            packs = (
+                admin_client.table("course_packs")
+                .select("id,name,slug,description,price,features,is_active")
+                .in_("id", numeric_ids)
+                .execute()
+                .data
+                or []
+            )
+            pack_map = {str(pack["id"]): pack for pack in packs}
+
+    return pack_map
+
+
 @router.get("/degree-plans")
 def get_degree_plans(include_inactive: bool = False):
     admin_client = _admin_client()
@@ -385,20 +423,7 @@ def get_user_purchases(user_id: str):
         for purchase in purchases
         if purchase.get("course_pack_id")
     ]
-    pack_map: Dict[str, Dict[str, Any]] = {}
-
-    if pack_ids:
-        numeric_ids = [int(pid) for pid in pack_ids if _is_integer_identifier(str(pid))]
-        if numeric_ids:
-            packs = (
-                admin_client.table("course_packs")
-                .select("id,name,slug,description,price,features,is_active")
-                .in_("id", numeric_ids)
-                .execute()
-                .data
-                or []
-            )
-            pack_map = {str(pack["id"]): pack for pack in packs}
+    pack_map = _fetch_packs_for_purchase_ids(admin_client, pack_ids)
 
     for purchase in purchases:
         purchase["course_pack"] = pack_map.get(str(purchase.get("course_pack_id")))
