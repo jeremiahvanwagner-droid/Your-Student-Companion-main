@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import secrets
-from typing import Optional
-from uuid import uuid4
+from typing import Any, Dict, Optional
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -25,11 +25,36 @@ class ResolveUserResponse(BaseModel):
     created: bool
 
 
+class StudentProfileUpsertRequest(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=120)
+    grade_level: Optional[str] = Field(default=None, max_length=120)
+    school: Optional[str] = Field(default=None, max_length=160)
+    major: Optional[str] = Field(default=None, max_length=160)
+    year_level: Optional[str] = Field(
+        default=None,
+        pattern=r"^(freshman|sophomore|junior|senior|other)$",
+    )
+    timezone: Optional[str] = Field(default=None, max_length=80)
+    weekly_goal_hours: Optional[int] = Field(default=None, ge=1, le=168)
+    study_preferences: Optional[Dict[str, Any]] = None
+    onboarding_completed: Optional[bool] = None
+
+
 def _admin_client():
     try:
         return get_supabase_admin_client()
     except SupabaseConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _parse_uuid_or_422(value: str, field_name: str) -> str:
+    try:
+        return str(UUID(str(value).strip()))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid {field_name} format. Expected UUID.",
+        ) from exc
 
 
 def _normalize_email(clerk_user_id: str, email: Optional[str]) -> str:
@@ -52,6 +77,47 @@ def _find_public_user_by_clerk_id(admin_client, clerk_user_id: str):
         or []
     )
     return rows[0] if rows else None
+
+
+def _ensure_public_user_exists(admin_client, user_id: str) -> None:
+    rows = (
+        admin_client.table("users")
+        .select("id")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found in public.users")
+
+
+def _fetch_student_profile(admin_client, user_id: str) -> Optional[Dict[str, Any]]:
+    rows = (
+        admin_client.table("student_profiles")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0] if rows else None
+
+
+def _clean_profile_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    cleaned = dict(payload)
+
+    for key in ["display_name", "grade_level", "school", "major", "year_level", "timezone"]:
+        if key in cleaned and isinstance(cleaned[key], str):
+            cleaned[key] = cleaned[key].strip() or None
+
+    if "study_preferences" in cleaned and cleaned["study_preferences"] is None:
+        cleaned["study_preferences"] = {}
+
+    return cleaned
 
 
 def _create_auth_user(
@@ -152,3 +218,49 @@ def resolve_user(request: ResolveUserRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create user record: {exc}") from exc
 
     return ResolveUserResponse(user_id=app_user_id, clerk_user_id=clerk_user_id, created=True)
+
+
+@router.get("/profile/{user_id}")
+def get_student_profile(user_id: str):
+    admin_client = _admin_client()
+    parsed_user_id = _parse_uuid_or_422(user_id, "user_id")
+
+    profile = _fetch_student_profile(admin_client, parsed_user_id)
+    return {"profile": profile}
+
+
+@router.put("/profile/{user_id}")
+def upsert_student_profile(user_id: str, request: StudentProfileUpsertRequest):
+    admin_client = _admin_client()
+    parsed_user_id = _parse_uuid_or_422(user_id, "user_id")
+
+    _ensure_public_user_exists(admin_client, parsed_user_id)
+
+    payload = request.model_dump(exclude_none=True)
+    payload = _clean_profile_payload(payload)
+
+    if not payload:
+        raise HTTPException(status_code=400, detail="No profile fields were provided")
+
+    existing = _fetch_student_profile(admin_client, parsed_user_id)
+    created = existing is None
+
+    try:
+        if existing:
+            updated_rows = (
+                admin_client.table("student_profiles")
+                .update(payload)
+                .eq("id", existing["id"])
+                .execute()
+                .data
+                or []
+            )
+            profile = updated_rows[0] if updated_rows else _fetch_student_profile(admin_client, parsed_user_id)
+        else:
+            insert_payload = {"user_id": parsed_user_id, **payload}
+            inserted_rows = admin_client.table("student_profiles").insert(insert_payload).execute().data or []
+            profile = inserted_rows[0] if inserted_rows else _fetch_student_profile(admin_client, parsed_user_id)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=500, detail=f"Failed to persist student profile: {exc}") from exc
+
+    return {"profile": profile, "created": created}

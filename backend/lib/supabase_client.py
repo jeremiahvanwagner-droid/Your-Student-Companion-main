@@ -6,8 +6,18 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
+from dotenv import load_dotenv
 from supabase import Client, create_client
+
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = BACKEND_DIR.parent
+
+# Load env files eagerly so routes work when uvicorn is started without manual export.
+load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(ROOT_DIR / ".env.local")
 
 
 class SupabaseConfigError(RuntimeError):

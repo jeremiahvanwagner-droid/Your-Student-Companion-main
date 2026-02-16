@@ -65,7 +65,7 @@ async def root():
             "store": "/api/store",
             "stripe_webhook": "/api/store/webhook",
             "users_resolve": "/api/users/resolve",
+            "users_profile": "/api/users/profile/{user_id}",
             "health": "/health",
         },
     }
-

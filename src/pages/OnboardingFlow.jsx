@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { setOnboardingComplete, setOnboardingProfile, getOnboardingProfile } from "@/lib/onboarding";
+import { useUserPurchasesContext } from "@/context/UserPurchasesContext";
+import {
+  fetchStudentProfile,
+  getOnboardingProfile,
+  persistStudentProfile,
+  setOnboardingComplete,
+  setOnboardingProfile,
+} from "@/lib/onboarding";
 
 const STEP_TITLES = [
   "Grade Level",
@@ -25,10 +32,125 @@ const DEFAULT_PROFILE = {
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
 };
 
+const USER_ID_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return USER_ID_UUID_REGEX.test(String(value || "").trim());
+}
+
+function parseSubjects(rawSubjects) {
+  return String(rawSubjects || "")
+    .split(",")
+    .map((subject) => subject.trim())
+    .filter(Boolean);
+}
+
+function mapRemoteProfileToForm(remoteProfile) {
+  if (!remoteProfile || typeof remoteProfile !== "object") {
+    return null;
+  }
+
+  const studyPreferences =
+    remoteProfile.study_preferences && typeof remoteProfile.study_preferences === "object"
+      ? remoteProfile.study_preferences
+      : {};
+
+  const subjects = Array.isArray(studyPreferences.subjects)
+    ? studyPreferences.subjects.join(", ")
+    : typeof studyPreferences.subjects === "string"
+      ? studyPreferences.subjects
+      : "";
+
+  const studyPreferenceText =
+    typeof studyPreferences.notes === "string"
+      ? studyPreferences.notes
+      : typeof studyPreferences.preference_text === "string"
+        ? studyPreferences.preference_text
+        : "";
+
+  return {
+    grade_level: remoteProfile.grade_level || "",
+    subjects,
+    weekly_goal_hours:
+      Number(remoteProfile.weekly_goal_hours) > 0
+        ? Number(remoteProfile.weekly_goal_hours)
+        : DEFAULT_PROFILE.weekly_goal_hours,
+    study_preferences: studyPreferenceText,
+    timezone: remoteProfile.timezone || DEFAULT_PROFILE.timezone,
+  };
+}
+
 export default function OnboardingFlow() {
   const navigate = useNavigate();
+  const { userId, identityLoading, identityError } = useUserPurchasesContext();
+
   const [step, setStep] = useState(0);
-  const [profile, setProfile] = useState(() => ({ ...DEFAULT_PROFILE, ...(getOnboardingProfile() || {}) }));
+  const [profile, setProfile] = useState(() => ({
+    ...DEFAULT_PROFILE,
+    ...(getOnboardingProfile() || {}),
+  }));
+  const [isLoadingRemoteProfile, setIsLoadingRemoteProfile] = useState(false);
+  const [remoteProfileChecked, setRemoteProfileChecked] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (identityLoading || remoteProfileChecked) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (!isUuid(userId)) {
+      setRemoteProfileChecked(true);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const loadRemoteProfile = async () => {
+      setIsLoadingRemoteProfile(true);
+
+      try {
+        const payload = await fetchStudentProfile(userId);
+        const remoteProfile = payload?.profile;
+        const mappedProfile = mapRemoteProfileToForm(remoteProfile);
+
+        if (!isMounted || !mappedProfile) {
+          return;
+        }
+
+        setProfile((previous) => ({
+          ...previous,
+          ...mappedProfile,
+        }));
+
+        setOnboardingProfile({
+          ...mappedProfile,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (error) {
+        if (isMounted) {
+          toast.error("Could not load saved onboarding profile.", {
+            description: error?.message || "Please continue and save again.",
+          });
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingRemoteProfile(false);
+          setRemoteProfileChecked(true);
+        }
+      }
+    };
+
+    loadRemoteProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [identityLoading, remoteProfileChecked, userId]);
 
   const canProceed = useMemo(() => {
     if (step === 0) {
@@ -46,6 +168,8 @@ export default function OnboardingFlow() {
     return true;
   }, [profile, step]);
 
+  const isBusy = identityLoading || isLoadingRemoteProfile || isSaving;
+
   const nextStep = () => {
     if (!canProceed) {
       toast.error("Complete this step before continuing.");
@@ -58,24 +182,60 @@ export default function OnboardingFlow() {
     setStep((current) => Math.max(current - 1, 0));
   };
 
-  const finishOnboarding = () => {
+  const finishOnboarding = async () => {
     if (!canProceed) {
       toast.error("Please complete all required fields.");
       return;
     }
 
-    setOnboardingProfile({
+    if (identityLoading || !isUuid(userId)) {
+      toast.error("Your account is still syncing.", {
+        description: "Please wait a moment and try again.",
+      });
+      return;
+    }
+
+    const normalizedProfile = {
       ...profile,
+      grade_level: profile.grade_level?.trim() || "",
+      subjects: profile.subjects?.trim() || "",
+      study_preferences: profile.study_preferences?.trim() || "",
+      timezone: profile.timezone?.trim() || DEFAULT_PROFILE.timezone,
       weekly_goal_hours: Number(profile.weekly_goal_hours) || 10,
-      updated_at: new Date().toISOString(),
-    });
-    setOnboardingComplete(true);
+    };
 
-    toast.success("Onboarding completed", {
-      description: "Your dashboard is ready.",
-    });
+    setIsSaving(true);
 
-    navigate("/app/dashboard", { replace: true });
+    try {
+      await persistStudentProfile(userId, {
+        grade_level: normalizedProfile.grade_level,
+        weekly_goal_hours: normalizedProfile.weekly_goal_hours,
+        timezone: normalizedProfile.timezone,
+        study_preferences: {
+          subjects: parseSubjects(normalizedProfile.subjects),
+          notes: normalizedProfile.study_preferences || null,
+        },
+        onboarding_completed: true,
+      });
+
+      setOnboardingProfile({
+        ...normalizedProfile,
+        updated_at: new Date().toISOString(),
+      });
+      setOnboardingComplete(true);
+
+      toast.success("Onboarding completed", {
+        description: "Your dashboard is ready.",
+      });
+
+      navigate("/app/dashboard", { replace: true });
+    } catch (error) {
+      toast.error("Could not save onboarding profile.", {
+        description: error?.message || "Try again in a moment.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -84,6 +244,12 @@ export default function OnboardingFlow() {
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">Step {step + 1} of {STEP_TITLES.length}</p>
         <h1 className="text-2xl font-semibold text-foreground">Student Onboarding</h1>
         <p className="text-sm text-muted-foreground">Set your profile so YSC can personalize your study flow.</p>
+        {isLoadingRemoteProfile && (
+          <p className="mt-2 text-xs text-muted-foreground">Loading your saved profile...</p>
+        )}
+        {!identityLoading && identityError && (
+          <p className="mt-2 text-xs text-amber-300">Identity sync warning: {identityError}</p>
+        )}
       </div>
 
       <Card className="border-border/40 bg-card/60">
@@ -165,20 +331,33 @@ export default function OnboardingFlow() {
           )}
 
           <div className="flex items-center justify-between pt-2">
-            <Button variant="outline" className="border-border/50" onClick={previousStep} disabled={step === 0}>
+            <Button
+              variant="outline"
+              className="border-border/50"
+              onClick={previousStep}
+              disabled={step === 0 || isBusy}
+            >
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
 
             {step < STEP_TITLES.length - 1 ? (
-              <Button onClick={nextStep} className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Button
+                onClick={nextStep}
+                className="bg-accent text-accent-foreground hover:bg-accent/90"
+                disabled={isBusy}
+              >
                 Next
                 <ChevronRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button onClick={finishOnboarding} className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Button
+                onClick={finishOnboarding}
+                className="bg-accent text-accent-foreground hover:bg-accent/90"
+                disabled={isBusy}
+              >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Finish
+                {isSaving ? "Saving..." : "Finish"}
               </Button>
             )}
           </div>
