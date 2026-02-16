@@ -24,20 +24,6 @@ begin
 end;
 $$;
 
-create or replace function public.is_admin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.users u
-    where u.id = auth.uid()
-      and u.role = 'admin'
-  );
-$$;
 
 -- ============================================================
 -- Normalize existing compatibility tables
@@ -71,6 +57,21 @@ create table if not exists public.users (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.users u
+    where u.id = auth.uid()
+      and u.role = 'admin'
+  );
+$$;
 
 create table if not exists public.student_profiles (
   id uuid primary key default gen_random_uuid(),
@@ -582,3 +583,4 @@ end
 $$;
 
 commit;
+
