@@ -25,15 +25,7 @@ const LEGACY_TOOLS = [
   { to: "/app/shifter", label: "Shifter" },
 ];
 
-function ClerkAvatar() {
-  if (!isClerkConfigured) {
-    return (
-      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-card text-xs text-muted-foreground">
-        G
-      </div>
-    );
-  }
-
+function ClerkAvatarConfigured() {
   const { isLoaded, isSignedIn } = useAuth();
 
   if (!isLoaded) {
@@ -62,6 +54,18 @@ function ClerkAvatar() {
       }}
     />
   );
+}
+
+function ClerkAvatar() {
+  if (!isClerkConfigured) {
+    return (
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-card text-xs text-muted-foreground">
+        G
+      </div>
+    );
+  }
+
+  return <ClerkAvatarConfigured />;
 }
 
 export default function AppShell() {
@@ -144,3 +148,4 @@ export default function AppShell() {
     </div>
   );
 }
+

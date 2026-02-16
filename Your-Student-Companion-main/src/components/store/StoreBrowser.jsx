@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ShoppingBag } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,8 +17,9 @@ import {
 } from "@/components/store/storeApi";
 import useUserPurchases from "@/hooks/useUserPurchases";
 
-export default function StoreBrowser({ onPackUnlock }) {
+export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const userId = useMemo(() => getClientUserId(), []);
 
   const [degreePlans, setDegreePlans] = useState([]);
@@ -96,6 +97,19 @@ export default function StoreBrowser({ onPackUnlock }) {
   }, [onPackUnlock, unlockedPackIds]);
 
   useEffect(() => {
+    if (!initialDegreeSlug || degreePlansLoading || selectedDegree || degreePlans.length === 0) {
+      return;
+    }
+
+    const match = degreePlans.find((plan) => plan.slug === initialDegreeSlug);
+    if (!match) {
+      return;
+    }
+
+    loadDegreePacks(match);
+  }, [degreePlans, degreePlansLoading, initialDegreeSlug, loadDegreePacks, selectedDegree]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const status = params.get("checkout");
     const packId = params.get("pack");
@@ -161,7 +175,8 @@ export default function StoreBrowser({ onPackUnlock }) {
     setSelectedPack(null);
     setDegreePacks([]);
     setCheckoutStatus(null);
-  }, []);
+    navigate("/app/store", { replace: true });
+  }, [navigate]);
 
   const resetToLevelSelection = useCallback(() => {
     setSelectedPack(null);
@@ -170,8 +185,8 @@ export default function StoreBrowser({ onPackUnlock }) {
   return (
     <div className="space-y-5">
       <div className="text-center">
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <ShoppingBag className="w-5 h-5 text-accent" />
+        <div className="mb-1 flex items-center justify-center gap-2">
+          <ShoppingBag className="h-5 w-5 text-accent" />
           <h2 className="text-xl font-semibold text-foreground">Course Pack Store</h2>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -180,13 +195,13 @@ export default function StoreBrowser({ onPackUnlock }) {
       </div>
 
       {degreePlansError && (
-        <Card className="bg-destructive/10 border-destructive/30">
+        <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="py-4 text-sm text-destructive">{degreePlansError}</CardContent>
         </Card>
       )}
 
       {purchasesError && (
-        <Card className="bg-destructive/10 border-destructive/30">
+        <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="py-4 text-sm text-destructive">{purchasesError}</CardContent>
         </Card>
       )}
@@ -206,6 +221,7 @@ export default function StoreBrowser({ onPackUnlock }) {
           loading={degreePlansLoading}
           onSelect={(plan) => {
             setCheckoutStatus(null);
+            navigate(`/app/store/${plan.slug}`);
             loadDegreePacks(plan);
           }}
         />
@@ -229,7 +245,7 @@ export default function StoreBrowser({ onPackUnlock }) {
       )}
 
       {selectedDegree && !selectedPack && !degreePacksLoading && degreePacks.length === 0 && (
-        <Card className="bg-card/50 border-border/40">
+        <Card className="border-border/40 bg-card/50">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             No packs found for this degree plan.
           </CardContent>

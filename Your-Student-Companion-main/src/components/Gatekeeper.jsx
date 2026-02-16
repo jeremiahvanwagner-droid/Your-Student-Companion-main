@@ -1,51 +1,39 @@
-import { useAuth } from '@clerk/clerk-react';
-import HomePage from '@/pages/HomePage';
-import LandingPage from '@/pages/LandingPage';
+import { useAuth } from "@clerk/clerk-react";
+import { Navigate } from "react-router-dom";
 
-/**
- * Gatekeeper Component
- * 
- * Controls access to the app based on authentication status:
- * - Signed Out: Shows the Landing Page (marketing/welcome)
- * - Signed In: Shows the App Dashboard (HomePage with Orb/Search)
- */
-const GatekeeperContent = () => {
+import { isOnboardingComplete } from "@/lib/onboarding";
+import LandingPage from "@/pages/LandingPage";
+
+const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY);
+
+function GatekeeperContent() {
   const { isSignedIn, isLoaded } = useAuth();
 
-  // Show loading state while Clerk initializes
   if (!isLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          {/* Animated loading orb */}
-          <div className="w-16 h-16 rounded-2xl bg-accent/20 flex items-center justify-center animate-pulse">
-            <div className="w-8 h-8 rounded-xl bg-accent/40 animate-ping" />
+          <div className="flex h-16 w-16 animate-pulse items-center justify-center rounded-2xl bg-accent/20">
+            <div className="h-8 w-8 animate-ping rounded-xl bg-accent/40" />
           </div>
-          <p className="text-muted-foreground text-sm">Loading...</p>
+          <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
   }
 
-  // Route based on authentication status
-  if (isSignedIn) {
-    return <HomePage />;
-  }
-
-  return <LandingPage />;
-};
-
-// Wrapper that checks if Clerk is configured
-const Gatekeeper = () => {
-  // Check if Clerk publishable key exists
-  const clerkPubKey = process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
-  
-  // If no Clerk key, show landing page without auth gating
-  if (!clerkPubKey) {
+  if (!isSignedIn) {
     return <LandingPage />;
   }
-  
-  return <GatekeeperContent />;
-};
 
-export default Gatekeeper;
+  const onboardingDone = isOnboardingComplete();
+  return <Navigate to={onboardingDone ? "/app/dashboard" : "/app/onboarding"} replace />;
+}
+
+export default function Gatekeeper() {
+  if (!isClerkConfigured) {
+    return <LandingPage />;
+  }
+
+  return <GatekeeperContent />;
+}

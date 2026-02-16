@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getUnlockedPacks, COURSE_PACKS } from "@/components/Store";
+import { getUnlockedPacks } from "@/components/Store";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
 
 const STORAGE_KEY = "studentCompanion_chatHistory";
@@ -38,7 +38,7 @@ const saveChatHistory = (messages) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
 };
 
-const TheMentor = ({ unlockedPacks = [] }) => {
+const TheMentor = ({ unlockedPacks = [], unlockedPackNames = [] }) => {
   const [localMessages, setLocalMessages] = useState(getChatHistory());
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -50,10 +50,10 @@ const TheMentor = ({ unlockedPacks = [] }) => {
   const currentUnlocked = unlockedPacks.length > 0 ? unlockedPacks : getUnlockedPacks();
   const hasUnlockedPacks = currentUnlocked.length > 0;
 
-  // Get unlocked pack names
-  const unlockedPackNames = COURSE_PACKS
-    .filter(p => currentUnlocked.includes(p.id))
-    .map(p => p.name);
+  const resolvedPackNames =
+    unlockedPackNames.length > 0
+      ? unlockedPackNames
+      : currentUnlocked.map((packId) => `Pack ${packId}`);
 
   // ElevenLabs Conversational AI hook
   const {
@@ -114,7 +114,7 @@ const TheMentor = ({ unlockedPacks = [] }) => {
       return "I am your specialized AI Agent. Unlock a Course Pack to activate my voice.";
     }
 
-    const packContext = unlockedPackNames.join(", ");
+    const packContext = resolvedPackNames.join(", ");
     return `I'm your AI Mentor for ${packContext}. Click the microphone button to start a voice conversation, or type your question below.`;
   };
 
@@ -231,7 +231,7 @@ const TheMentor = ({ unlockedPacks = [] }) => {
                   ? "Speaking..." 
                   : "Listening..."
                 : hasUnlockedPacks 
-                  ? `Specialized in ${unlockedPackNames.length} subject${unlockedPackNames.length > 1 ? 's' : ''}` 
+                  ? `Specialized in ${resolvedPackNames.length} subject${resolvedPackNames.length > 1 ? 's' : ''}` 
                   : "Unlock a pack to activate"
               }
             </p>
@@ -296,7 +296,7 @@ const TheMentor = ({ unlockedPacks = [] }) => {
       {/* Unlocked Packs Badges */}
       {hasUnlockedPacks && (
         <div className="flex flex-wrap gap-2 mb-3">
-          {unlockedPackNames.map((name, idx) => (
+          {resolvedPackNames.map((name, idx) => (
             <Badge 
               key={idx} 
               variant="outline" 
@@ -507,3 +507,4 @@ const TheMentor = ({ unlockedPacks = [] }) => {
 };
 
 export default TheMentor;
+
