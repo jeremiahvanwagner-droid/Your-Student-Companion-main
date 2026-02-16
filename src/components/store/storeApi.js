@@ -49,12 +49,23 @@ export async function fetchUserPurchases(userId) {
   return handleResponse(response, "Failed to load user purchases.");
 }
 
-export function getClientUserId() {
-  const clerkUserId = window?.Clerk?.user?.id;
-  if (clerkUserId) {
-    return clerkUserId;
+export function getClerkClientUser() {
+  const clerkUser = window?.Clerk?.user;
+  if (!clerkUser?.id) {
+    return null;
   }
 
+  const email = clerkUser.primaryEmailAddress?.emailAddress || clerkUser.emailAddresses?.[0]?.emailAddress;
+
+  return {
+    id: clerkUser.id,
+    email: email || null,
+    first_name: clerkUser.firstName || null,
+    last_name: clerkUser.lastName || null,
+  };
+}
+
+export function getGuestUserId() {
   const storageKey = "studentCompanion_guestUserId";
   const existing = localStorage.getItem(storageKey);
   if (existing) {
@@ -65,8 +76,30 @@ export function getClientUserId() {
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `guest_${Date.now()}`;
+
   localStorage.setItem(storageKey, generated);
   return generated;
+}
+
+export function getClientUserId() {
+  const clerkUser = getClerkClientUser();
+  if (clerkUser?.id) {
+    return clerkUser.id;
+  }
+
+  return getGuestUserId();
+}
+
+export async function resolveAppUser(payload) {
+  const response = await fetch(`${API_BASE_URL}/api/users/resolve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleResponse(response, "Failed to resolve application user.");
 }
 
 export function formatUsd(price) {

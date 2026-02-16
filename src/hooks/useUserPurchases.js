@@ -29,7 +29,6 @@ export default function useUserPurchases(userId) {
   const refresh = useCallback(async () => {
     if (!userId) {
       setPurchases([]);
-      persistUnlockedPacks([]);
       return;
     }
 

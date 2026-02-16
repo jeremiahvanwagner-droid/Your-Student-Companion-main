@@ -20,10 +20,12 @@ app.add_middleware(
 from routes.ai_mentor import router as ai_mentor_router
 from routes.store import router as store_router
 from routes.webhooks import router as webhooks_router
+from routes.users import router as users_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
 app.include_router(webhooks_router)
+app.include_router(users_router)
 
 
 # ============================================
@@ -43,7 +45,7 @@ async def api_health_check():
         "status": "healthy",
         "services": {
             "api": "operational",
-            "ai_mentor": "placeholder_mode",
+            "ai_mentor": "openai_or_fallback",
             "voice": "elevenlabs_conversational_ai",
             "store": "supabase_stripe",
         },
@@ -62,6 +64,8 @@ async def root():
             "ai_mentor": "/api/ai",
             "store": "/api/store",
             "stripe_webhook": "/api/store/webhook",
+            "users_resolve": "/api/users/resolve",
             "health": "/health",
         },
     }
+

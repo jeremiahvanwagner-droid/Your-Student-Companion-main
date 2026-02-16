@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getUnlockedPacks } from "@/components/Store";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
+import { sendMentorChat } from "@/lib/aiMentorApi";
 
 const STORAGE_KEY = "studentCompanion_chatHistory";
 
@@ -38,7 +39,7 @@ const saveChatHistory = (messages) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
 };
 
-const TheMentor = ({ unlockedPacks = [], unlockedPackNames = [] }) => {
+const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }) => {
   const [localMessages, setLocalMessages] = useState(getChatHistory());
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -108,47 +109,65 @@ const TheMentor = ({ unlockedPacks = [], unlockedPackNames = [] }) => {
     }
   }, [volume, isSessionActive, setVolume]);
 
-  const generateResponse = (userMessage) => {
-    // Placeholder responses for when ElevenLabs is not active
-    if (!hasUnlockedPacks) {
-      return "I am your specialized AI Agent. Unlock a Course Pack to activate my voice.";
-    }
-
-    const packContext = resolvedPackNames.join(", ");
-    return `I'm your AI Mentor for ${packContext}. Click the microphone button to start a voice conversation, or type your question below.`;
-  };
-
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    const messageText = inputValue.trim();
+    if (!messageText) return;
 
     if (isSessionActive) {
       // Send via ElevenLabs
-      sendTextMessage(inputValue.trim());
+      sendTextMessage(messageText);
       setInputValue("");
-    } else {
-      // Fallback to local mock responses
-      const userMessage = {
-        id: Date.now(),
-        role: "user",
-        content: inputValue.trim(),
-        timestamp: new Date().toISOString()
-      };
+      return;
+    }
 
-      setLocalMessages(prev => [...prev, userMessage]);
-      setInputValue("");
-      setIsTyping(true);
+    const userMessage = {
+      id: Date.now(),
+      role: "user",
+      content: messageText,
+      timestamp: new Date().toISOString(),
+      isFinal: true,
+    };
 
-      // Simulate AI response delay
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+    setLocalMessages((prev) => [...prev, userMessage]);
+    setInputValue("");
+    setIsTyping(true);
+
+    try {
+      const historyPayload = localMessages
+        .filter((message) => message?.role === "user" || message?.role === "assistant")
+        .slice(-12)
+        .map((message) => ({ role: message.role, content: message.content }));
+
+      const result = await sendMentorChat({
+        message: messageText,
+        conversation_history: historyPayload,
+        unlocked_packs: currentUnlocked,
+        user_id: userId,
+        voice_enabled: false,
+      });
 
       const aiResponse = {
         id: Date.now() + 1,
         role: "assistant",
-        content: generateResponse(inputValue.trim()),
-        timestamp: new Date().toISOString()
+        content: result?.message || "I could not generate a response right now.",
+        timestamp: new Date().toISOString(),
+        isFinal: true,
       };
 
-      setLocalMessages(prev => [...prev, aiResponse]);
+      setLocalMessages((prev) => [...prev, aiResponse]);
+    } catch (error) {
+      const aiErrorResponse = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content:
+          error?.message ||
+          "I ran into a connection issue. Please try again in a moment.",
+        timestamp: new Date().toISOString(),
+        isFinal: true,
+      };
+
+      setLocalMessages((prev) => [...prev, aiErrorResponse]);
+    } finally {
       setIsTyping(false);
     }
   };
@@ -475,9 +494,9 @@ const TheMentor = ({ unlockedPacks = [], unlockedPackNames = [] }) => {
                   ? "Type or speak your message..." 
                   : hasUnlockedPacks 
                     ? "Ask The Mentor anything..." 
-                    : "Unlock a pack to start chatting..."
+                    : "Ask a general study question..."
               }
-              disabled={!hasUnlockedPacks && localMessages.length >= 2}
+              disabled={isTyping}
               className="pr-12 bg-card border-border/50 focus:border-accent/50 text-foreground placeholder:text-muted-foreground/50"
               data-testid="mentor-input"
             />
@@ -498,7 +517,7 @@ const TheMentor = ({ unlockedPacks = [], unlockedPackNames = [] }) => {
             ? "Voice session active • Speak naturally or type"
             : hasUnlockedPacks
               ? "Click the microphone to start a voice conversation"
-              : "Unlock a Course Pack to continue the conversation"
+              : "General chat is available; unlock a pack for specialized mentoring"
           }
         </p>
       </div>
