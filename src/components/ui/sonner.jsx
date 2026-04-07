@@ -1,14 +1,13 @@
-import { useTheme } from "next-themes"
+// FIX: removed next-themes import — this is a CRA app, not Next.js.
+// The app uses a fixed dark theme ("Truth Blue"), so we hardcode "dark".
 import { Toaster as Sonner, toast } from "sonner"
 
 const Toaster = ({
   ...props
 }) => {
-  const { theme = "system" } = useTheme()
-
   return (
     <Sonner
-      theme={theme}
+      theme="dark"
       className="toaster group"
       toastOptions={{
         classNames: {

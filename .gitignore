@@ -28,11 +28,11 @@ next-env.d.ts
 # Production builds
 /build
 dist/
-dist
 
-# Environment files
-*.env
-*.env.*
+# Environment files — never commit secrets
+.env
+.env.*
+!.env.example
 *token.json*
 *credentials.json*
 
@@ -49,7 +49,7 @@ dump.rdb
 
 # Python
 __pycache__/
-*pyc*
+*.pyc
 venv/
 .venv/
 
@@ -79,22 +79,13 @@ agenthub/agents/youtube/db
 
 # Mobile development
 android-sdk/
-frontend/node_modules/.cache/default-development/4.pack
-frontend/node_modules/.cache/default-development/2.pack
-node_modules/.cache/default-development/1.pack
--e 
-# Environment files
-*.env
-*.env.*
-node_modules/.cache/default-development/0.pack
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
 
+# Agent metadata — not project source
+.emergent/
+
+# FIX: per-user git identity should not be source-controlled
+.gitconfig
+
+# Supabase local state
 supabase/.temp/
 
