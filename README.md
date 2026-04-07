@@ -18,7 +18,7 @@ A supportive, calm, and highly intelligent academic tutor app built for students
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-org/Your-Student-Companion-main.git
+git clone https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main.git
 cd Your-Student-Companion-main
 
 # 2. Install dependencies (--legacy-peer-deps required for React 19)

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# FIX: explicit minimal permissions for GITHUB_TOKEN
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
