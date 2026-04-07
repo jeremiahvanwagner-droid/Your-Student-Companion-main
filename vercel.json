@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "create-react-app",
+  "buildCommand": "craco build",
+  "outputDirectory": "build",
+  "installCommand": "npm install --legacy-peer-deps",
+  "rewrites": [
+    { "source": "/((?!static|manifest\\.json|favicon\\.ico|robots\\.txt|logo.*\\.png).*)", "destination": "/index.html" }
+  ]
+}
