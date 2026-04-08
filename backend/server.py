@@ -33,11 +33,15 @@ from routes.ai_mentor import router as ai_mentor_router
 from routes.store import router as store_router
 from routes.webhooks import router as webhooks_router
 from routes.users import router as users_router
+from routes.tasks import router as tasks_router
+from routes.subjects import router as subjects_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
 app.include_router(webhooks_router)
 app.include_router(users_router)
+app.include_router(tasks_router)
+app.include_router(subjects_router)
 
 
 # ============================================
@@ -80,6 +84,9 @@ async def root():
             "users_me": "/api/users/me",
             "users_me_profile": "/api/users/me/profile",
             "users_profile": "/api/users/profile/{user_id}",
+            "tasks": "/api/tasks",
+            "tasks_stats": "/api/tasks/stats",
+            "subjects": "/api/subjects",
             "health": "/health",
         },
     }
