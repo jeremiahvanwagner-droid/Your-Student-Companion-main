@@ -3,6 +3,7 @@ import { Focus, Play, Pause, RotateCcw, X, Trophy, Clock, Flame } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { createStudySession, completeStudySession, createFocusLog } from "@/lib/focusApi";
 
 const FOCUS_DURATION = 25 * 60; // 25 minutes in seconds
 const STORAGE_KEY = "studentCompanion_minutesFocused";
@@ -26,6 +27,7 @@ const FocusMode = ({ onFocusStateChange }) => {
   const [showOverlay, setShowOverlay] = useState(false);
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
+  const sessionIdRef = useRef(null);
 
   // Format time as MM:SS
   const formatTime = (seconds) => {
@@ -43,6 +45,19 @@ const FocusMode = ({ onFocusStateChange }) => {
     const newTotal = totalMinutesFocused + 25;
     setTotalMinutesFocused(newTotal);
     saveMinutesFocused(newTotal);
+
+    // Sync to server (best-effort)
+    const sid = sessionIdRef.current;
+    if (sid) {
+      completeStudySession(sid, { duration_actual_minutes: 25 }).catch(() => {});
+      createFocusLog({
+        study_session_id: sid,
+        focus_minutes: 25,
+        break_minutes: 0,
+        distractions_noted: 0,
+      }).catch(() => {});
+      sessionIdRef.current = null;
+    }
 
     // Show success toast
     toast.success("Focus session complete!", {
@@ -110,6 +125,18 @@ const FocusMode = ({ onFocusStateChange }) => {
     setIsPaused(false);
     startTimeRef.current = Date.now();
     onFocusStateChange?.(true);
+
+    // Create server-side study session (best-effort)
+    createStudySession({
+      duration_planned_minutes: 25,
+      session_type: "pomodoro",
+    })
+      .then((res) => {
+        sessionIdRef.current = res?.session?.id || null;
+      })
+      .catch(() => {
+        sessionIdRef.current = null;
+      });
     
     toast.info("Focus mode activated!", {
       description: "Stay focused for 25 minutes to earn your reward.",
@@ -135,9 +162,22 @@ const FocusMode = ({ onFocusStateChange }) => {
         setTotalMinutesFocused(newTotal);
         saveMinutesFocused(newTotal);
         toast.info(`Partial session saved: ${minutesCompleted} minutes added.`);
+
+        // Sync partial session to server (best-effort)
+        const sid = sessionIdRef.current;
+        if (sid) {
+          completeStudySession(sid, { duration_actual_minutes: minutesCompleted }).catch(() => {});
+          createFocusLog({
+            study_session_id: sid,
+            focus_minutes: minutesCompleted,
+            break_minutes: 0,
+            distractions_noted: 0,
+          }).catch(() => {});
+        }
       }
     }
 
+    sessionIdRef.current = null;
     setIsActive(false);
     setIsPaused(false);
     setTimeRemaining(FOCUS_DURATION);

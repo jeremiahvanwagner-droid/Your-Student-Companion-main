@@ -1,7 +1,12 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from lib.rate_limit import limiter
 
 
 def _allowed_origins() -> list[str]:
@@ -19,6 +24,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +44,7 @@ from routes.webhooks import router as webhooks_router
 from routes.users import router as users_router
 from routes.tasks import router as tasks_router
 from routes.subjects import router as subjects_router
+from routes.focus import router as focus_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
@@ -42,6 +52,7 @@ app.include_router(webhooks_router)
 app.include_router(users_router)
 app.include_router(tasks_router)
 app.include_router(subjects_router)
+app.include_router(focus_router)
 
 
 # ============================================
@@ -87,6 +98,9 @@ async def root():
             "tasks": "/api/tasks",
             "tasks_stats": "/api/tasks/stats",
             "subjects": "/api/subjects",
+            "focus_sessions": "/api/focus/sessions",
+            "focus_logs": "/api/focus/logs",
+            "focus_stats": "/api/focus/stats",
             "health": "/health",
         },
     }

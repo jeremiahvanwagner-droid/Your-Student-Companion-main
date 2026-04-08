@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from lib.rate_limit import limiter
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 router = APIRouter(prefix="/api/ai", tags=["AI Mentor"])
@@ -366,20 +367,21 @@ def _persist_ai_interaction(
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_with_mentor(request: ChatRequest):
-    user_message = _safe_trim(request.message)
+@limiter.limit("10/minute")
+async def chat_with_mentor(request: Request, chat_request: ChatRequest):
+    user_message = _safe_trim(chat_request.message)
     if not user_message:
         raise HTTPException(status_code=422, detail="message is required")
 
-    history = _normalize_history(request.conversation_history)
+    history = _normalize_history(chat_request.conversation_history)
 
     supplied_pack_ids = [
         str(pack_id).strip()
-        for pack_id in (request.unlocked_packs or [])
+        for pack_id in (chat_request.unlocked_packs or [])
         if str(pack_id).strip()
     ]
 
-    purchased_pack_contexts = _fetch_purchased_pack_contexts(request.user_id)
+    purchased_pack_contexts = _fetch_purchased_pack_contexts(chat_request.user_id)
     pack_context_text = _build_pack_context_text(
         purchased_pack_contexts,
         supplied_pack_ids,
@@ -410,7 +412,7 @@ async def chat_with_mentor(request: ChatRequest):
         first_pack_id = supplied_pack_ids[0]
 
     _persist_ai_interaction(
-        user_id=request.user_id,
+        user_id=chat_request.user_id,
         pack_id=first_pack_id,
         prompt=user_message,
         response=ai_message,

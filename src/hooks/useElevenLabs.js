@@ -170,6 +170,12 @@ export const useElevenLabs = (options = {}) => {
       return null;
     }
 
+    // Guard against double-start
+    if (isSessionActive || connectionStatus === 'connecting') {
+      log('warn', 'Session already active or connecting, ignoring duplicate start');
+      return null;
+    }
+
     try {
       setError(null);
       setConnectionStatus('connecting');
@@ -178,22 +184,41 @@ export const useElevenLabs = (options = {}) => {
       
       // Request microphone permission first
       log('info', 'Requesting microphone permission...');
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      log('info', 'Microphone permission granted');
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        log('info', 'Microphone permission granted');
+      } catch (micErr) {
+        const isDenied = micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError';
+        const isNotFound = micErr?.name === 'NotFoundError' || micErr?.name === 'DevicesNotFoundError';
+        let userMessage;
+        if (isDenied) {
+          userMessage = 'Microphone access was denied. Please allow microphone access in your browser settings and try again.';
+        } else if (isNotFound) {
+          userMessage = 'No microphone found. Please connect a microphone and try again.';
+        } else {
+          userMessage = `Microphone error: ${micErr?.message || 'Unknown error'}`;
+        }
+        setError(userMessage);
+        setConnectionStatus('disconnected');
+        log('error', 'Microphone access failed:', micErr?.name, micErr?.message);
+        return null;
+      }
       
       // Start the conversation session with WebRTC for low latency
-      const conversationId = await conversation.startSession({
+      const sessionPromise = conversation.startSession({
         agentId: agentId,
         connectionType: 'webrtc',
-        // Override settings can also be passed here
         overrides: {
-          // These overrides help prevent barge-in issues
-          conversation: {
-            // High threshold = less likely to interrupt (0.0 to 1.0)
-            // Setting to 0.8 means only very clear user speech will interrupt
-          },
+          conversation: {},
         },
       });
+
+      // Timeout after 15 seconds to prevent hanging in "connecting" state
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timed out. Please check your internet connection and try again.')), 15000)
+      );
+
+      const conversationId = await Promise.race([sessionPromise, timeoutPromise]);
       
       conversationIdRef.current = conversationId;
       sessionRef.current = conversation; // Store reference for text messages
