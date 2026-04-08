@@ -242,7 +242,7 @@ export const useElevenLabs = (options = {}) => {
       setIsSessionActive(false);
       return null;
     }
-  }, [agentId, conversation]);
+  }, [agentId, conversation, connectionStatus, isSessionActive]);
 
   // End the voice session
   const endSession = useCallback(async () => {
