@@ -11,7 +11,7 @@ export default function FocusPage() {
     <div className={`space-y-4 ${isFocusActive ? "overflow-hidden" : ""}`}>
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Focus Mode</h1>
-        <p className="text-sm text-muted-foreground">Pomodoro sessions are available now; Supabase persistence lands in Module E.</p>
+        <p className="text-sm text-muted-foreground">Track your Pomodoro sessions — time and focus data sync automatically to your profile.</p>
       </div>
 
       <Card className="border-border/40 bg-card/50">

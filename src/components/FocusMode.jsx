@@ -1,30 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Focus, Play, Pause, RotateCcw, X, Trophy, Clock, Flame } from "lucide-react";
+import { Focus, Play, Pause, RotateCcw, X, Trophy, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { createStudySession, completeStudySession, createFocusLog } from "@/lib/focusApi";
+import { createStudySession, completeStudySession, createFocusLog, fetchFocusStats } from "@/lib/focusApi";
 
-const FOCUS_DURATION = 25 * 60; // 25 minutes in seconds
+const FOCUS_DURATION = 25 * 60;
 const STORAGE_KEY = "studentCompanion_minutesFocused";
 
-// Get minutes focused from localStorage
-const getMinutesFocused = () => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return stored ? parseInt(stored, 10) : 0;
-};
-
-// Save minutes focused to localStorage
-const saveMinutesFocused = (minutes) => {
-  localStorage.setItem(STORAGE_KEY, minutes.toString());
-};
+const getLocalMinutes = () => parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
+const saveLocalMinutes = (minutes) => localStorage.setItem(STORAGE_KEY, minutes.toString());
 
 const FocusMode = ({ onFocusStateChange }) => {
   const [isActive, setIsActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(FOCUS_DURATION);
-  const [totalMinutesFocused, setTotalMinutesFocused] = useState(getMinutesFocused());
+  const [totalMinutesFocused, setTotalMinutesFocused] = useState(getLocalMinutes());
   const [showOverlay, setShowOverlay] = useState(false);
+
+  useEffect(() => {
+    fetchFocusStats()
+      .then((data) => {
+        const serverMinutes = data?.total_focus_minutes ?? 0;
+        if (serverMinutes > 0) {
+          setTotalMinutesFocused(serverMinutes);
+          saveLocalMinutes(serverMinutes);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -44,7 +48,7 @@ const FocusMode = ({ onFocusStateChange }) => {
     // Add 25 minutes to the total
     const newTotal = totalMinutesFocused + 25;
     setTotalMinutesFocused(newTotal);
-    saveMinutesFocused(newTotal);
+    saveLocalMinutes(newTotal);
 
     // Sync to server (best-effort)
     const sid = sessionIdRef.current;
@@ -160,7 +164,7 @@ const FocusMode = ({ onFocusStateChange }) => {
       if (minutesCompleted > 0) {
         const newTotal = totalMinutesFocused + minutesCompleted;
         setTotalMinutesFocused(newTotal);
-        saveMinutesFocused(newTotal);
+        saveLocalMinutes(newTotal);
         toast.info(`Partial session saved: ${minutesCompleted} minutes added.`);
 
         // Sync partial session to server (best-effort)

@@ -1,20 +1,7 @@
 import { useConversation } from '@elevenlabs/react';
 import { useCallback, useState, useEffect, useRef } from 'react';
 
-/**
- * Custom hook for ElevenLabs Conversational AI integration
- * Wraps the official useConversation hook with app-specific functionality
- * 
- * ALPHA BUILD: Agent ID is hardcoded for immediate testing
- * 
- * FIXES APPLIED:
- * - Voice Cut-Off: Disabled barge-in to prevent premature interruption
- * - Dead Chat Box: Fixed sendTextMessage to properly trigger agent responses
- * - Enhanced error logging for debugging connection issues
- */
-
-// Agent ID: Prefer environment variable, fallback to hardcoded for Alpha build
-const ELEVENLABS_AGENT_ID = process.env.REACT_APP_ELEVENLABS_AGENT_ID || 'agent_2801kej9dsd1fgxtwzn92adgx6e2';
+const ELEVENLABS_AGENT_ID = process.env.REACT_APP_ELEVENLABS_AGENT_ID;
 
 // Logging helper with timestamps
 const log = (level, ...args) => {
