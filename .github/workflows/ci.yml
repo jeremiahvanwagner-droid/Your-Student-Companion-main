@@ -32,8 +32,8 @@ jobs:
         env:
           CI: true
 
-      - name: Run frontend tests
-        run: npx craco test --watchAll=false --ci --passWithNoTests
+      - name: Run frontend tests with coverage
+        run: npm run test:coverage
         env:
           CI: true
 
@@ -54,9 +54,9 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Install test dependencies
-        run: pip install pytest httpx
+        run: pip install pytest httpx pytest-cov
 
-      - name: Run backend tests
-        run: python -m pytest backend/tests/ -v
+      - name: Run backend tests with coverage
+        run: python -m pytest backend/tests/ -v --cov=backend --cov-report=term --cov-fail-under=25
         env:
           CI: true
