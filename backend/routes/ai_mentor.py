@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import requests
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from lib.clerk_auth import AppAuthContext, get_app_auth_context
 from lib.rate_limit import limiter
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
@@ -368,10 +369,17 @@ def _persist_ai_interaction(
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("10/minute")
-async def chat_with_mentor(request: Request, chat_request: ChatRequest):
+async def chat_with_mentor(
+    request: Request,
+    chat_request: ChatRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
     user_message = _safe_trim(chat_request.message)
     if not user_message:
         raise HTTPException(status_code=422, detail="message is required")
+
+    # Use the authenticated user's app_user_id, ignoring any client-supplied user_id.
+    authenticated_user_id = auth.app_user_id
 
     history = _normalize_history(chat_request.conversation_history)
 
@@ -381,7 +389,7 @@ async def chat_with_mentor(request: Request, chat_request: ChatRequest):
         if str(pack_id).strip()
     ]
 
-    purchased_pack_contexts = _fetch_purchased_pack_contexts(chat_request.user_id)
+    purchased_pack_contexts = _fetch_purchased_pack_contexts(authenticated_user_id)
     pack_context_text = _build_pack_context_text(
         purchased_pack_contexts,
         supplied_pack_ids,
@@ -412,7 +420,7 @@ async def chat_with_mentor(request: Request, chat_request: ChatRequest):
         first_pack_id = supplied_pack_ids[0]
 
     _persist_ai_interaction(
-        user_id=chat_request.user_id,
+        user_id=authenticated_user_id,
         pack_id=first_pack_id,
         prompt=user_message,
         response=ai_message,

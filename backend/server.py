@@ -90,7 +90,7 @@ async def root():
         "endpoints": {
             "ai_mentor": "/api/ai",
             "store": "/api/store",
-            "stripe_webhook": "/api/store/webhook",
+            "stripe_webhook": "/api/webhooks/stripe",
             "users_resolve": "/api/users/resolve",
             "users_me": "/api/users/me",
             "users_me_profile": "/api/users/me/profile",

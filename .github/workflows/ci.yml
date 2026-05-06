@@ -31,3 +31,32 @@ jobs:
         run: npx craco build
         env:
           CI: true
+
+      - name: Run frontend tests
+        run: npx craco test --watchAll=false --ci --passWithNoTests
+        env:
+          CI: true
+
+  backend-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Install test dependencies
+        run: pip install pytest httpx
+
+      - name: Run backend tests
+        run: python -m pytest backend/tests/ -v
+        env:
+          CI: true

@@ -13,12 +13,27 @@ function handleResponse(response, fallbackMessage) {
   return response.json();
 }
 
+async function getClerkSessionToken() {
+  const session = window?.Clerk?.session;
+  if (!session?.getToken) return null;
+  try {
+    return await session.getToken();
+  } catch {
+    return null;
+  }
+}
+
+async function authHeaders(extra = {}) {
+  const token = await getClerkSessionToken();
+  if (!token) throw new Error("Authentication required. Please sign in again.");
+  return { ...extra, Authorization: `Bearer ${token}` };
+}
+
 export async function sendMentorChat(payload) {
+  const headers = await authHeaders({ "Content-Type": "application/json" });
   const response = await fetch(`${API_BASE_URL}/api/ai/chat`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 

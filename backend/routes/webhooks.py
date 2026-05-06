@@ -261,7 +261,6 @@ def _handle_event(event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]
     return {"updated": False, "reason": f"Unhandled event type: {event_type}"}
 
 
-@router.post("/api/store/webhook")
 @router.post("/api/webhooks/stripe")
 async def stripe_webhook(
     request: Request,
