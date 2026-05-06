@@ -89,3 +89,13 @@ export async function fetchFocusStats() {
   const response = await fetch(`${API_BASE_URL}/api/focus/stats`, { headers });
   return handleResponse(response, "Failed to load focus stats.");
 }
+
+export async function legacyImportFocusMinutes({ minutes }) {
+  const headers = await authHeaders({ "Content-Type": "application/json" });
+  const response = await fetch(`${API_BASE_URL}/api/focus/legacy-import`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ minutes }),
+  });
+  return handleResponse(response, "Failed to import focus minutes.");
+}

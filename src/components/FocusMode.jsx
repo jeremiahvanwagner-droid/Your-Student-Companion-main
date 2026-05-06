@@ -3,10 +3,17 @@ import { Focus, Play, Pause, RotateCcw, X, Trophy, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { createStudySession, completeStudySession, createFocusLog, fetchFocusStats } from "@/lib/focusApi";
+import {
+  createStudySession,
+  completeStudySession,
+  createFocusLog,
+  fetchFocusStats,
+  legacyImportFocusMinutes,
+} from "@/lib/focusApi";
 
 const FOCUS_DURATION = 25 * 60;
 const STORAGE_KEY = "studentCompanion_minutesFocused";
+const MIGRATION_KEY = "studentCompanion_minutesMigrated";
 
 const getLocalMinutes = () => parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
 const saveLocalMinutes = (minutes) => localStorage.setItem(STORAGE_KEY, minutes.toString());
@@ -19,15 +26,32 @@ const FocusMode = ({ onFocusStateChange }) => {
   const [showOverlay, setShowOverlay] = useState(false);
 
   useEffect(() => {
-    fetchFocusStats()
-      .then((data) => {
-        const serverMinutes = data?.total_focus_minutes ?? 0;
-        if (serverMinutes > 0) {
-          setTotalMinutesFocused(serverMinutes);
-          saveLocalMinutes(serverMinutes);
-        }
-      })
-      .catch(() => {});
+    const syncFromServer = () =>
+      fetchFocusStats()
+        .then((data) => {
+          const serverMinutes = data?.total_focus_minutes ?? 0;
+          if (serverMinutes > 0) {
+            setTotalMinutesFocused(serverMinutes);
+            saveLocalMinutes(serverMinutes);
+          }
+        })
+        .catch(() => {});
+
+    const localMinutes = getLocalMinutes();
+    const alreadyMigrated = localStorage.getItem(MIGRATION_KEY) === "true";
+
+    if (localMinutes > 0 && !alreadyMigrated) {
+      legacyImportFocusMinutes({ minutes: localMinutes })
+        .then(() => {
+          localStorage.setItem(MIGRATION_KEY, "true");
+        })
+        .catch(() => {
+          // 409 (already migrated) is handled silently; leave flag unset to retry
+        })
+        .finally(() => syncFromServer());
+    } else {
+      syncFromServer();
+    }
   }, []);
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
