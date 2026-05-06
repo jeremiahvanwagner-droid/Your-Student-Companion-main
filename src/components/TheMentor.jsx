@@ -3,7 +3,9 @@ import {
   MessageCircle,
   Send,
   Bot,
+  ExternalLink,
   Lock,
+  RefreshCw,
   Sparkles,
   Mic,
   MicOff,
@@ -14,13 +16,13 @@ import {
   PhoneOff,
   AlertCircle,
   Loader2,
-  Hand,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useNavigate } from "react-router-dom";
 import { getUnlockedPacks } from "@/components/Store";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
 import { sendMentorChat, persistVoiceTranscript } from "@/lib/aiMentorApi";
@@ -41,6 +43,7 @@ const saveChatHistory = (messages) => {
 };
 
 const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }) => {
+  const navigate = useNavigate();
   const [localMessages, setLocalMessages] = useState(getChatHistory());
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -73,9 +76,11 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
     micMuted,
     toggleMic,
     conversationId,
-    error: elevenLabsError,
+    errorState,
+    errorMessage: elevenLabsError,
     isConfigured,
     agentId,
+    clearError,
   } = useElevenLabs({
     volume,
     onConnect: () => {
@@ -331,11 +336,69 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
         </div>
       </div>
 
-      {/* Error Display */}
-      {elevenLabsError && (
-        <div className="mb-3 p-2 rounded-lg bg-destructive/10 border border-destructive/30 flex items-center gap-2">
+      {/* Contextual error banners */}
+      {errorState === 'mic_permission_denied' && (
+        <div className="mb-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2" data-testid="error-banner-mic">
+          <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-amber-300 font-medium">Microphone access denied</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{elevenLabsError}</p>
+          </div>
+          <a
+            href="https://support.google.com/chrome/answer/2693767"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 flex-shrink-0"
+            onClick={clearError}
+          >
+            Open settings <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      )}
+
+      {errorState === 'quota_exceeded' && (
+        <div className="mb-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/30 flex items-start gap-2" data-testid="error-banner-quota">
+          <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-destructive font-medium">Voice quota exceeded</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{elevenLabsError}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-accent hover:text-accent/80 flex-shrink-0"
+            onClick={() => { clearError(); navigate('/store'); }}
+          >
+            Upgrade plan
+          </Button>
+        </div>
+      )}
+
+      {(errorState === 'network_error' || errorState === 'agent_timeout') && (
+        <div className="mb-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/30 flex items-start gap-2" data-testid="error-banner-retry">
+          <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-destructive font-medium">
+              {errorState === 'agent_timeout' ? 'Voice session timed out' : 'Voice connection error'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{elevenLabsError}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-accent hover:text-accent/80 flex-shrink-0"
+            onClick={() => { clearError(); startSession(); }}
+            data-testid="error-retry-btn"
+          >
+            <RefreshCw className="w-3 h-3 mr-1" /> Retry
+          </Button>
+        </div>
+      )}
+
+      {errorState === 'unknown_error' && elevenLabsError && (
+        <div className="mb-3 p-2 rounded-lg bg-destructive/10 border border-destructive/30 flex items-center gap-2" data-testid="error-banner-unknown">
           <AlertCircle className="w-4 h-4 text-destructive" />
-          <p className="text-xs text-destructive">{elevenLabsError}</p>
+          <p className="text-xs text-destructive flex-1">{elevenLabsError}</p>
         </div>
       )}
 

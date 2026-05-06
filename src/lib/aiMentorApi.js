@@ -45,6 +45,23 @@ export async function fetchMentorStatus() {
   return handleResponse(response, "Failed to fetch AI status.");
 }
 
+export async function postVoiceTranscript({ role, content, timestamp, sessionId }) {
+  try {
+    const headers = await authHeaders({ "Content-Type": "application/json" });
+    const response = await fetch(`${API_BASE_URL}/api/ai/voice/transcript`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        messages: [{ role, content, timestamp: timestamp || new Date().toISOString() }],
+        conversation_id: sessionId || null,
+      }),
+    });
+    return handleResponse(response, "Failed to save voice message.");
+  } catch {
+    return null;
+  }
+}
+
 export async function persistVoiceTranscript({ messages, conversationId }) {
   try {
     const headers = await authHeaders({ "Content-Type": "application/json" });
