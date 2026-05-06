@@ -139,8 +139,9 @@ describe("TheMentor", () => {
       errorMessage: "Voice session timed out.",
     };
     renderMentor();
-    expect(screen.getByTestId("error-banner-retry")).toBeInTheDocument();
-    expect(screen.getByText(/Voice session timed out/i)).toBeInTheDocument();
+    const banner = screen.getByTestId("error-banner-retry");
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent(/Voice session timed out/i);
   });
 
   it("shows mute toggle only when session is active", () => {
