@@ -100,10 +100,23 @@ export async function fetchTaskStats() {
 
 // ── Subjects ─────────────────────────────────────────────────────────────
 
-export async function fetchSubjects() {
+export async function fetchSubjects({ includeArchived = false } = {}) {
+  const params = new URLSearchParams();
+  if (includeArchived) params.set("include_archived", "true");
+  const qs = params.toString();
   const headers = await authHeaders();
-  const response = await fetch(`${API_BASE_URL}/api/subjects`, { headers });
+  const response = await fetch(`${API_BASE_URL}/api/subjects${qs ? `?${qs}` : ""}`, { headers });
   return handleResponse(response, "Failed to load subjects.");
+}
+
+export async function patchSubject(subjectId, data) {
+  const headers = await authHeaders({ "Content-Type": "application/json" });
+  const response = await fetch(`${API_BASE_URL}/api/subjects/${encodeURIComponent(subjectId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response, "Failed to update subject.");
 }
 
 export async function createSubject(data) {
