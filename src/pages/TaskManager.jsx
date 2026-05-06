@@ -220,6 +220,18 @@ export default function TaskManager() {
     setEditTask(task);
   };
 
+  // Overdue: past due_date and not completed/submitted
+  const isOverdue = (task) => {
+    if (!task.due_date) return false;
+    if (task.status === "completed" || task.status === "submitted") return false;
+    return new Date(task.due_date) < new Date();
+  };
+
+  const daysOverdue = (task) => {
+    const diff = Date.now() - new Date(task.due_date).getTime();
+    return Math.floor(diff / 86_400_000);
+  };
+
   // group tasks by status
   const grouped = {};
   for (const col of COLUMNS) grouped[col.key] = [];
@@ -350,10 +362,16 @@ export default function TaskManager() {
 
                 {grouped[col.key].map((task) => {
                   const subject = subjectMap[task.subject_id];
+                  const overdue = isOverdue(task);
+                  const overdueDays = overdue ? daysOverdue(task) : 0;
                   return (
                     <Card
                       key={task.id}
-                      className="cursor-pointer border-border/40 bg-card/50 transition-colors hover:bg-card/80"
+                      className={`cursor-pointer border transition-colors hover:bg-card/80 ${
+                        overdue
+                          ? "border-red-500/60 bg-red-500/5 hover:bg-red-500/10"
+                          : "border-border/40 bg-card/50"
+                      }`}
                       onClick={() => openEdit(task)}
                     >
                       <CardContent className="space-y-2 p-3">
@@ -366,6 +384,13 @@ export default function TaskManager() {
                           </Badge>
                         </div>
 
+                        {overdue && (
+                          <p className="text-[11px] font-medium text-red-400 flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" />
+                            {overdueDays === 0 ? "Due today" : `${overdueDays}d overdue`}
+                          </p>
+                        )}
+
                         {task.description && (
                           <p className="line-clamp-2 text-xs text-muted-foreground">
                             {task.description}
@@ -374,7 +399,7 @@ export default function TaskManager() {
 
                         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
                           {task.due_date && (
-                            <span className="inline-flex items-center gap-1">
+                            <span className={`inline-flex items-center gap-1 ${overdue ? "text-red-400" : ""}`}>
                               <Calendar className="h-3 w-3" />
                               {new Date(task.due_date).toLocaleDateString()}
                             </span>

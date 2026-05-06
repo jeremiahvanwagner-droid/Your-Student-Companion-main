@@ -16,11 +16,28 @@ const log = (level, ...args) => {
   }
 };
 
+const QUOTA_KEYWORDS = ['quota', 'billing', 'limit exceeded', 'rate limit', 'too many requests', 'payment', 'subscription'];
+
+function classifyVoiceError(err) {
+  const msg = (err?.message || err?.reason || String(err || '')).toLowerCase();
+  if (QUOTA_KEYWORDS.some((k) => msg.includes(k))) {
+    return 'Voice quota exceeded. Please try again later or check your ElevenLabs plan.';
+  }
+  if (msg.includes('network') || msg.includes('websocket') || msg.includes('connection')) {
+    return 'Voice connection lost. Please check your internet connection and try again.';
+  }
+  if (msg.includes('timeout') || msg.includes('timed out')) {
+    return 'Voice connection timed out. Please try again.';
+  }
+  return err?.message || 'An error occurred with the voice connection.';
+}
+
 export const useElevenLabs = (options = {}) => {
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [error, setError] = useState(null);
   const [messages, setMessages] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [micMuted, setMicMuted] = useState(false);
   const conversationIdRef = useRef(null);
   const sessionRef = useRef(null); // Track session for text messages
 
@@ -113,7 +130,7 @@ export const useElevenLabs = (options = {}) => {
       log('error', 'Connection status:', connectionStatus);
       log('error', '===================');
       
-      setError(err?.message || 'An error occurred with the voice connection');
+      setError(classifyVoiceError(err));
       options.onError?.(err);
     },
 
@@ -140,9 +157,9 @@ export const useElevenLabs = (options = {}) => {
       log('info', 'Debug:', debugInfo);
     },
 
-    // Controlled state for volume
+    // Controlled state for volume and mic
     volume: options.volume ?? 1,
-    micMuted: options.micMuted ?? false,
+    micMuted: micMuted || (options.micMuted ?? false),
   });
 
   /**
@@ -330,6 +347,14 @@ export const useElevenLabs = (options = {}) => {
     }
   }, [conversation, isSessionActive]);
 
+  // Toggle microphone mute (push-to-talk support)
+  const toggleMic = useCallback(() => {
+    setMicMuted((prev) => {
+      log('info', `Mic ${prev ? 'unmuted' : 'muted'}`);
+      return !prev;
+    });
+  }, []);
+
   // Clear messages
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -382,6 +407,10 @@ export const useElevenLabs = (options = {}) => {
     clearMessages,
     sendUserActivity: notifyUserActivity,
     
+    // Mic control (push-to-talk)
+    micMuted,
+    toggleMic,
+
     // Volume control
     setVolume,
     getInputVolume: conversation.getInputVolume,

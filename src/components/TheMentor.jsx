@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { 
-  MessageCircle, 
-  Send, 
-  Bot, 
-  Lock, 
+import {
+  MessageCircle,
+  Send,
+  Bot,
+  Lock,
   Sparkles,
   Mic,
   MicOff,
@@ -13,7 +13,8 @@ import {
   Phone,
   PhoneOff,
   AlertCircle,
-  Loader2
+  Loader2,
+  Hand,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getUnlockedPacks } from "@/components/Store";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
-import { sendMentorChat } from "@/lib/aiMentorApi";
+import { sendMentorChat, persistVoiceTranscript } from "@/lib/aiMentorApi";
 
 const STORAGE_KEY = "studentCompanion_chatHistory";
 
@@ -69,9 +70,12 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
     sendTextMessage,
     sendUserActivity,
     setVolume,
+    micMuted,
+    toggleMic,
+    conversationId,
     error: elevenLabsError,
     isConfigured,
-    agentId, // Exposed for verification
+    agentId,
   } = useElevenLabs({
     volume,
     onConnect: () => {
@@ -192,11 +196,29 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
     localStorage.removeItem(STORAGE_KEY);
   };
 
+  const handleEndSession = async () => {
+    if (elevenLabsMessages.length > 0) {
+      persistVoiceTranscript({
+        messages: elevenLabsMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+        })),
+        conversationId,
+      });
+    }
+    await endSession();
+  };
+
   const handleVoiceToggle = async () => {
     if (!isConfigured) {
       return;
     }
-    await toggleSession();
+    if (isSessionActive) {
+      await handleEndSession();
+    } else {
+      await startSession();
+    }
   };
 
   const handleVolumeToggle = () => {
@@ -259,6 +281,20 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
 
         {/* Voice Controls */}
         <div className="flex items-center gap-2">
+          {/* Mic Mute (push-to-talk) — only shown during active session */}
+          {isSessionActive && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleMic}
+              title={micMuted ? "Unmute mic" : "Mute mic"}
+              className={`h-8 w-8 transition-all ${micMuted ? 'text-red-400 hover:text-red-300' : 'text-accent hover:text-accent/80'}`}
+              data-testid="mic-mute-toggle"
+            >
+              {micMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </Button>
+          )}
+
           {/* Start/End Session Button */}
           <Button
             variant={isSessionActive ? "destructive" : "default"}
@@ -266,8 +302,8 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
             onClick={handleVoiceToggle}
             disabled={!hasUnlockedPacks || !isConfigured}
             className={`h-8 w-8 transition-all ${
-              isSessionActive 
-                ? 'bg-red-500/80 hover:bg-red-500' 
+              isSessionActive
+                ? 'bg-red-500/80 hover:bg-red-500'
                 : 'bg-accent/80 hover:bg-accent text-accent-foreground'
             }`}
             data-testid="voice-session-toggle"
@@ -277,10 +313,10 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
             ) : isSessionActive ? (
               <PhoneOff className="w-4 h-4" />
             ) : (
-              <Mic className="w-4 h-4" />
+              <Phone className="w-4 h-4" />
             )}
           </Button>
-          
+
           {/* Volume Toggle */}
           <Button
             variant="ghost"
@@ -341,7 +377,7 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
             <Button
               variant="ghost"
               size="sm"
-              onClick={endSession}
+              onClick={handleEndSession}
               className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
             >
               End

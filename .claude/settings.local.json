@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx react-scripts *)",
+      "Bash(npx craco *)"
     ]
   }
 }

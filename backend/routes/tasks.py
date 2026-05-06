@@ -4,11 +4,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from lib.audit import write_audit_log
 from lib.clerk_auth import AppAuthContext, get_app_auth_context
+from lib.rate_limit import limiter
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
@@ -210,7 +211,9 @@ async def get_task(
 # ---------------------------------------------------------------------------
 
 @router.post("", status_code=201)
+@limiter.limit("60/minute")
 async def create_task(
+    request: Request,
     body: TaskCreate,
     auth: AppAuthContext = Depends(get_app_auth_context),
 ):

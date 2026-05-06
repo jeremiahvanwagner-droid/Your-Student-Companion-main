@@ -430,6 +430,44 @@ async def chat_with_mentor(
     return ChatResponse(message=ai_message, audio_url=None, tokens_used=tokens_used)
 
 
+class VoiceTranscriptMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: Optional[str] = None
+
+
+class VoiceTranscriptRequest(BaseModel):
+    messages: List[VoiceTranscriptMessage]
+    conversation_id: Optional[str] = None
+
+
+@router.post("/voice/transcript", status_code=201)
+@limiter.limit("20/minute")
+async def save_voice_transcript(
+    request: Request,
+    body: VoiceTranscriptRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    if not body.messages:
+        return {"saved": 0}
+
+    user_turns = [m.content for m in body.messages if (m.role or "").lower() == "user"]
+    assistant_turns = [m.content for m in body.messages if (m.role or "").lower() == "assistant"]
+
+    prompt_summary = " | ".join(user_turns[:5]) or "(voice session)"
+    response_summary = " | ".join(assistant_turns[:5]) or "(no response recorded)"
+
+    _persist_ai_interaction(
+        user_id=auth.app_user_id,
+        pack_id=None,
+        prompt=prompt_summary[:2000],
+        response=response_summary[:2000],
+        tokens_used=None,
+    )
+
+    return {"saved": len(body.messages)}
+
+
 @router.post("/voice/synthesize", response_model=VoiceResponse)
 async def synthesize_voice(request: VoiceRequest):
     if not ELEVENLABS_API_KEY:

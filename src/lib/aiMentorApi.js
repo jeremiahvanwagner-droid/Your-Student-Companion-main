@@ -44,3 +44,18 @@ export async function fetchMentorStatus() {
   const response = await fetch(`${API_BASE_URL}/api/ai/status`);
   return handleResponse(response, "Failed to fetch AI status.");
 }
+
+export async function persistVoiceTranscript({ messages, conversationId }) {
+  try {
+    const headers = await authHeaders({ "Content-Type": "application/json" });
+    const response = await fetch(`${API_BASE_URL}/api/ai/voice/transcript`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ messages, conversation_id: conversationId }),
+    });
+    return handleResponse(response, "Failed to save voice transcript.");
+  } catch {
+    // Best-effort — do not surface errors to the user
+    return null;
+  }
+}
