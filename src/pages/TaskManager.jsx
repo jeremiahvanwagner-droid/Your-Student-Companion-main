@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
-  ArrowRight,
   Calendar,
   ChevronRight,
   Clock,
@@ -43,6 +42,7 @@ import {
   fetchSubjects,
   createSubject,
 } from "@/lib/tasksApi";
+import SubjectPicker from "@/components/SubjectPicker";
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -98,8 +98,6 @@ export default function TaskManager() {
   // form state
   const [form, setForm] = useState(EMPTY_FORM);
 
-  // new subject inline
-  const [newSubjectName, setNewSubjectName] = useState("");
 
   // ── Data loading ─────────────────────────────────────────────────────
 
@@ -196,16 +194,10 @@ export default function TaskManager() {
     }
   };
 
-  const handleAddSubject = async () => {
-    if (!newSubjectName.trim()) return;
-    try {
-      await createSubject({ name: newSubjectName.trim() });
-      setNewSubjectName("");
-      const res = await fetchSubjects();
-      setSubjects(res.subjects || []);
-    } catch (err) {
-      setError(err.message);
-    }
+  const handleCreateSubject = async (name, color) => {
+    await createSubject({ name, color });
+    const res = await fetchSubjects();
+    setSubjects(res.subjects || []);
   };
 
   const openEdit = (task) => {
@@ -513,37 +505,14 @@ export default function TaskManager() {
               </div>
 
               <div>
-                <Label htmlFor="subject">Subject</Label>
-                <Select
-                  value={form.subject_id}
-                  onValueChange={(v) => setForm((f) => ({ ...f, subject_id: v }))}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="None" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {subjects.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Quick add subject */}
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <Label className="text-xs text-muted-foreground">Add new subject</Label>
-                <Input
-                  value={newSubjectName}
-                  onChange={(e) => setNewSubjectName(e.target.value)}
-                  placeholder="e.g. Biology 101"
-                  className="mt-1 h-8 text-sm"
-                  onKeyDown={(e) => e.key === "Enter" && handleAddSubject()}
+                <Label>Subject</Label>
+                <SubjectPicker
+                  value={form.subject_id || null}
+                  onChange={(v) => setForm((f) => ({ ...f, subject_id: v || "" }))}
+                  subjects={subjects}
+                  onCreate={handleCreateSubject}
                 />
               </div>
-              <Button variant="outline" size="sm" className="h-8" onClick={handleAddSubject}>
-                <Plus className="h-3 w-3" />
-              </Button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

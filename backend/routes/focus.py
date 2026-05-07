@@ -37,6 +37,10 @@ class FocusLogCreate(BaseModel):
     distractions_noted: int = Field(default=0, ge=0)
 
 
+class LegacyImportRequest(BaseModel):
+    minutes: int = Field(..., ge=1, le=100000)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -263,3 +267,64 @@ async def focus_stats(
         "total_distractions": total_distractions,
         "total_hours": round(total_focus_minutes / 60, 1) if total_focus_minutes else 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Legacy import — one-time migration from localStorage to server
+# ---------------------------------------------------------------------------
+
+@router.post("/legacy-import", status_code=201)
+async def legacy_import(
+    body: LegacyImportRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    admin = _admin_client()
+
+    # Check idempotency: reject if already migrated
+    existing = (
+        admin.table("focus_migrations")
+        .select("id,minutes_imported")
+        .eq("user_id", auth.app_user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Already migrated",
+                "minutes_imported": existing[0].get("minutes_imported"),
+            },
+        )
+
+    # Record the migration
+    admin.table("focus_migrations").insert(
+        {
+            "user_id": auth.app_user_id,
+            "minutes_imported": body.minutes,
+        }
+    ).execute()
+
+    # Persist a focus log for the imported minutes
+    admin.table("focus_logs").insert(
+        {
+            "user_id": auth.app_user_id,
+            "focus_minutes": body.minutes,
+            "break_minutes": 0,
+            "distractions_noted": 0,
+            "logged_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).execute()
+
+    write_audit_log(
+        admin,
+        actor_id=auth.app_user_id,
+        action="focus.legacy_import",
+        entity_type="focus_log",
+        entity_id=None,
+        metadata={"minutes_imported": body.minutes},
+    )
+
+    return {"imported": True, "minutes": body.minutes}

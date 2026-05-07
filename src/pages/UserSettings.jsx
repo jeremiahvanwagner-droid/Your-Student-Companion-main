@@ -1,19 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, RotateCcw, Save, Settings, User, Trash2, Plus, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  RotateCcw,
+  Save,
+  Settings,
+  User,
+} from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,7 +48,15 @@ import {
   persistMyStudentProfile,
   setOnboardingComplete,
 } from "@/lib/onboarding";
-import { fetchSubjects, createSubject, deleteSubject } from "@/lib/tasksApi";
+import {
+  createSubject,
+  fetchSubjects,
+  fetchTasks,
+  patchSubject,
+} from "@/lib/tasksApi";
+import { SUBJECT_COLORS } from "@/components/SubjectPicker";
+
+// ── Constants ─────────────────────────────────────────────────────────────
 
 const YEAR_LEVELS = [
   { value: "freshman", label: "Freshman" },
@@ -52,6 +78,142 @@ const TIMEZONES = [
   "America/Puerto_Rico",
 ];
 
+// ── SubjectRow ─────────────────────────────────────────────────────────────
+
+function SubjectRow({ subject, taskCount, onRename, onRecolor, onArchive, onRestore }) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(subject.name);
+  const [showColors, setShowColors] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleBlur = async () => {
+    setEditing(false);
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== subject.name) {
+      await onRename(subject.id, trimmed);
+    } else {
+      setEditName(subject.name);
+    }
+  };
+
+  const startEdit = () => {
+    setEditName(subject.name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  return (
+    <div
+      className="flex items-center gap-2 rounded-lg border border-border/40 bg-card/40 px-3 py-2"
+      data-testid={`subject-row-${subject.id}`}
+    >
+      {/* Color swatch — click to open palette */}
+      <button
+        type="button"
+        className="h-4 w-4 rounded-full flex-shrink-0 border-2 border-transparent hover:border-foreground/30 transition-all"
+        style={{ backgroundColor: subject.color || "#64748b" }}
+        onClick={() => setShowColors((v) => !v)}
+        title="Change color"
+        data-testid="subject-color-btn"
+      />
+
+      {/* Name — click to edit */}
+      {editing ? (
+        <Input
+          ref={inputRef}
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") inputRef.current?.blur();
+            if (e.key === "Escape") {
+              setEditName(subject.name);
+              setEditing(false);
+            }
+          }}
+          className="h-6 flex-1 border-accent/40 bg-transparent text-sm p-1"
+          data-testid="subject-rename-input"
+        />
+      ) : (
+        <button
+          type="button"
+          className="flex-1 text-left text-sm text-foreground hover:text-accent transition-colors"
+          onClick={startEdit}
+          data-testid="subject-name-btn"
+        >
+          {subject.name}
+        </button>
+      )}
+
+      {/* Task count badge */}
+      {taskCount > 0 && (
+        <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
+          {taskCount}
+        </Badge>
+      )}
+
+      {/* Archive / restore */}
+      {subject.archived ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          onClick={() => onRestore(subject.id)}
+          title="Restore subject"
+          data-testid="subject-restore-btn"
+        >
+          <ArchiveRestore className="h-3.5 w-3.5" />
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-amber-400"
+          onClick={() => onArchive(subject)}
+          title="Archive subject"
+          data-testid="subject-archive-btn"
+        >
+          <Archive className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
+      {/* Inline color palette */}
+      {showColors && (
+        <div className="absolute z-10 mt-8 flex gap-1 rounded-lg border border-border/50 bg-card p-2 shadow-md">
+          {SUBJECT_COLORS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              title={c.label}
+              onClick={async () => {
+                setShowColors(false);
+                await onRecolor(subject.id, c.value);
+              }}
+              className={`h-5 w-5 rounded-full border-2 transition-transform hover:scale-110 ${
+                subject.color === c.value ? "border-foreground" : "border-transparent"
+              }`}
+              style={{ backgroundColor: c.value }}
+            />
+          ))}
+          {/* Check icon if current color matches */}
+          {subject.color && (
+            <button
+              type="button"
+              className="h-5 w-5 flex items-center justify-center rounded-full border-2 border-transparent text-muted-foreground hover:text-foreground"
+              onClick={() => setShowColors(false)}
+              title="Close"
+            >
+              <Check className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 export default function UserSettings() {
   const navigate = useNavigate();
 
@@ -72,18 +234,27 @@ export default function UserSettings() {
 
   // subjects state
   const [subjects, setSubjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [newSubject, setNewSubject] = useState("");
+  const [newSubjectColor, setNewSubjectColor] = useState(SUBJECT_COLORS[1].value);
   const [addingSubject, setAddingSubject] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deletingSubject, setDeletingSubject] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archivingSubject, setArchivingSubject] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+
+  const reloadSubjects = async () => {
+    const res = await fetchSubjects({ includeArchived: true });
+    setSubjects(res?.subjects || []);
+  };
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const [profileRes, subjectsRes] = await Promise.all([
+        const [profileRes, subjectsRes, tasksRes] = await Promise.all([
           fetchMyStudentProfile(),
-          fetchSubjects(),
+          fetchSubjects({ includeArchived: true }),
+          fetchTasks({ limit: 500 }),
         ]);
         if (!mounted) return;
         const p = profileRes?.profile || {};
@@ -103,14 +274,31 @@ export default function UserSettings() {
               : "",
         });
         setSubjects(subjectsRes?.subjects || []);
+        setTasks(tasksRes?.tasks || []);
       } catch {
         // profile may not exist yet
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  // derived data
+  const taskCountBySubject = useMemo(() => {
+    const counts = {};
+    for (const t of tasks) {
+      if (t.subject_id) counts[t.subject_id] = (counts[t.subject_id] || 0) + 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  const activeSubjects = subjects.filter((s) => !s.archived);
+  const archivedSubjects = subjects.filter((s) => s.archived);
+
+  // ── Handlers ─────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     setSaving(true);
@@ -158,10 +346,9 @@ export default function UserSettings() {
     if (!newSubject.trim()) return;
     setAddingSubject(true);
     try {
-      await createSubject({ name: newSubject.trim() });
+      await createSubject({ name: newSubject.trim(), color: newSubjectColor });
       setNewSubject("");
-      const res = await fetchSubjects();
-      setSubjects(res?.subjects || []);
+      await reloadSubjects();
       toast.success("Subject added");
     } catch (err) {
       toast.error("Failed to add subject", { description: err?.message });
@@ -170,19 +357,55 @@ export default function UserSettings() {
     }
   };
 
-  const handleDeleteSubject = async () => {
-    if (!deleteTarget) return;
-    setDeletingSubject(true);
+  const handleRename = async (subjectId, newName) => {
+    // Optimistic update
+    setSubjects((prev) =>
+      prev.map((s) => (s.id === subjectId ? { ...s, name: newName } : s))
+    );
     try {
-      await deleteSubject(deleteTarget.id);
-      setDeleteTarget(null);
-      const res = await fetchSubjects();
-      setSubjects(res?.subjects || []);
-      toast.success("Subject deleted");
+      await patchSubject(subjectId, { name: newName });
     } catch (err) {
-      toast.error("Failed to delete subject", { description: err?.message });
+      toast.error("Failed to rename subject", { description: err?.message });
+      await reloadSubjects();
+    }
+  };
+
+  const handleRecolor = async (subjectId, color) => {
+    // Optimistic update
+    setSubjects((prev) =>
+      prev.map((s) => (s.id === subjectId ? { ...s, color } : s))
+    );
+    try {
+      await patchSubject(subjectId, { color });
+    } catch (err) {
+      toast.error("Failed to update color", { description: err?.message });
+      await reloadSubjects();
+    }
+  };
+
+  const handleArchiveConfirm = async () => {
+    if (!archiveTarget) return;
+    setArchivingSubject(true);
+    try {
+      await patchSubject(archiveTarget.id, { archived: true });
+      setArchiveTarget(null);
+      await reloadSubjects();
+      toast.success(`"${archiveTarget.name}" archived`);
+    } catch (err) {
+      toast.error("Failed to archive subject", { description: err?.message });
     } finally {
-      setDeletingSubject(false);
+      setArchivingSubject(false);
+    }
+  };
+
+  const handleRestore = async (subjectId) => {
+    const s = subjects.find((sub) => sub.id === subjectId);
+    try {
+      await patchSubject(subjectId, { archived: false });
+      await reloadSubjects();
+      toast.success(`"${s?.name}" restored`);
+    } catch (err) {
+      toast.error("Failed to restore subject", { description: err?.message });
     }
   };
 
@@ -198,7 +421,9 @@ export default function UserSettings() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your profile and study preferences.</p>
+        <p className="text-sm text-muted-foreground">
+          Manage your profile and study preferences.
+        </p>
       </div>
 
       {/* Profile Card */}
@@ -299,7 +524,9 @@ export default function UserSettings() {
                 min={1}
                 max={168}
                 value={form.weekly_goal_hours}
-                onChange={(e) => setForm((f) => ({ ...f, weekly_goal_hours: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, weekly_goal_hours: e.target.value }))
+                }
                 className="mt-1"
               />
             </div>
@@ -310,7 +537,9 @@ export default function UserSettings() {
             <Textarea
               id="study_prefs"
               value={form.study_preferences}
-              onChange={(e) => setForm((f) => ({ ...f, study_preferences: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, study_preferences: e.target.value }))
+              }
               placeholder="Any study preferences or notes..."
               className="mt-1"
               rows={3}
@@ -323,7 +552,11 @@ export default function UserSettings() {
               disabled={saving}
               onClick={handleSave}
             >
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
               Save Profile
             </Button>
           </div>
@@ -335,33 +568,34 @@ export default function UserSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Settings className="h-4 w-4 text-accent" />
-            Manage Subjects
+            Subjects
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {subjects.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {subjects.map((s) => (
-                <Badge
-                  key={s.id}
-                  variant="secondary"
-                  className="gap-1 px-2.5 py-1 text-sm"
-                >
-                  {s.name}
-                  <button
-                    onClick={() => setDeleteTarget(s)}
-                    className="ml-1 rounded-full p-0.5 hover:bg-destructive/20 hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
+          {/* Active subjects list */}
+          {activeSubjects.length > 0 ? (
+            <div className="space-y-1.5">
+              {activeSubjects.map((s) => (
+                <div key={s.id} className="relative">
+                  <SubjectRow
+                    subject={s}
+                    taskCount={taskCountBySubject[s.id] || 0}
+                    onRename={handleRename}
+                    onRecolor={handleRecolor}
+                    onArchive={setArchiveTarget}
+                    onRestore={handleRestore}
+                  />
+                </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No subjects yet. Add your first one below.</p>
+            <p className="text-sm text-muted-foreground">
+              No subjects yet. Add your first one below.
+            </p>
           )}
 
-          <div className="flex gap-2">
+          {/* Add new subject */}
+          <div className="flex gap-2 pt-1">
             <Input
               value={newSubject}
               onChange={(e) => setNewSubject(e.target.value)}
@@ -369,16 +603,70 @@ export default function UserSettings() {
               className="max-w-xs"
               onKeyDown={(e) => e.key === "Enter" && handleAddSubject()}
             />
+            {/* Color picker row */}
+            <div className="flex items-center gap-1">
+              {SUBJECT_COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onClick={() => setNewSubjectColor(c.value)}
+                  className={`h-5 w-5 rounded-full border-2 transition-transform hover:scale-110 ${
+                    newSubjectColor === c.value
+                      ? "border-foreground scale-110"
+                      : "border-transparent"
+                  }`}
+                  style={{ backgroundColor: c.value }}
+                />
+              ))}
+            </div>
             <Button
               variant="outline"
               className="border-border/50"
               disabled={addingSubject || !newSubject.trim()}
               onClick={handleAddSubject}
             >
-              {addingSubject ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Add
+              {addingSubject ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Add"
+              )}
             </Button>
           </div>
+
+          {/* Archived subjects collapsible */}
+          {archivedSubjects.length > 0 && (
+            <Collapsible open={archivedOpen} onOpenChange={setArchivedOpen}>
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  data-testid="archived-toggle"
+                >
+                  {archivedOpen ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )}
+                  {archivedSubjects.length} archived
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-1.5 pt-1">
+                {archivedSubjects.map((s) => (
+                  <SubjectRow
+                    key={s.id}
+                    subject={s}
+                    taskCount={taskCountBySubject[s.id] || 0}
+                    onRename={handleRename}
+                    onRecolor={handleRecolor}
+                    onArchive={setArchiveTarget}
+                    onRestore={handleRestore}
+                  />
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </CardContent>
       </Card>
 
@@ -391,34 +679,51 @@ export default function UserSettings() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Button variant="outline" className="border-border/50" onClick={restartOnboarding} disabled={resetting}>
+          <Button
+            variant="outline"
+            className="border-border/50"
+            onClick={restartOnboarding}
+            disabled={resetting}
+          >
             <RotateCcw className="mr-2 h-4 w-4" />
             {resetting ? "Resetting..." : "Restart Onboarding"}
           </Button>
           <p className="mt-2 text-xs text-muted-foreground">
-            This will reset your onboarding flow so you can update your initial profile setup.
+            This will reset your onboarding flow so you can update your initial
+            profile setup.
           </p>
         </CardContent>
       </Card>
 
-      {/* Delete Subject Confirmation */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete Subject</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;{deleteTarget?.name}&quot;? Tasks linked to this subject will keep their data but lose the subject tag.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={deletingSubject} onClick={handleDeleteSubject}>
-              {deletingSubject && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Archive confirmation dialog */}
+      <AlertDialog
+        open={!!archiveTarget}
+        onOpenChange={(open) => !open && setArchiveTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive Subject</AlertDialogTitle>
+            <AlertDialogDescription>
+              Archive &ldquo;{archiveTarget?.name}&rdquo;? It will be hidden from the
+              subject picker but can be restored here at any time. Tasks linked to this
+              subject keep their data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleArchiveConfirm}
+              disabled={archivingSubject}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              {archivingSubject && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

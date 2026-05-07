@@ -2,6 +2,9 @@
 
 A supportive, calm, and highly intelligent academic tutor app built for students.
 
+**Phase 0 — Foundation Hardening: Closed (2026-05-06)**  
+See [docs/phases/foundation-hardening-phase-0.md](docs/phases/foundation-hardening-phase-0.md)
+
 ## Tech Stack
 
 | Layer      | Technology                              |
@@ -33,11 +36,35 @@ npm start
 
 ## Scripts
 
-| Command           | Description                        |
-| ----------------- | ---------------------------------- |
-| `npm start`       | Start dev server (port 3000)       |
-| `npm run build`   | Production build → `build/`        |
-| `npm test`        | Run tests                          |
+| Command                | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `npm start`            | Start dev server (port 3000)             |
+| `npm run build`        | Production build → `build/`              |
+| `npm test`             | Run tests in watch mode                  |
+| `npm run test:coverage`| Run tests + enforce coverage thresholds  |
+
+## Quality gates
+
+CI fails the PR if any gate is violated. **Raise floors, never lower.**
+
+### Frontend (Jest + React Testing Library)
+
+| Metric     | Floor |
+| ---------- | ----- |
+| Statements | 35%   |
+| Branches   | 25%   |
+| Functions  | 30%   |
+| Lines      | 35%   |
+
+Run locally: `npm run test:coverage`
+
+### Backend (pytest-cov)
+
+| Metric    | Floor |
+| --------- | ----- |
+| Lines     | 25%   |
+
+Run locally: `python -m pytest backend/tests/ -v --cov=backend --cov-report=term --cov-fail-under=25`
 
 ## Project Structure
 

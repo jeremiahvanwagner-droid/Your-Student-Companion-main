@@ -1,71 +1,113 @@
 import { useConversation } from '@elevenlabs/react';
 import { useCallback, useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
+import { postVoiceTranscript } from '@/lib/aiMentorApi';
 
 const ELEVENLABS_AGENT_ID = process.env.REACT_APP_ELEVENLABS_AGENT_ID;
 
-// Logging helper with timestamps
 const log = (level, ...args) => {
-  const timestamp = new Date().toISOString();
-  const prefix = `[ElevenLabs ${timestamp}]`;
-  if (level === 'error') {
-    console.error(prefix, ...args);
-  } else if (level === 'warn') {
-    console.warn(prefix, ...args);
-  } else {
-    console.log(prefix, ...args);
+  if (process.env.NODE_ENV !== 'production') {
+    const prefix = `[ElevenLabs ${new Date().toISOString()}]`;
+    if (level === 'error') console.error(prefix, ...args);
+    else if (level === 'warn') console.warn(prefix, ...args);
+    else console.log(prefix, ...args);
   }
 };
 
-const QUOTA_KEYWORDS = ['quota', 'billing', 'limit exceeded', 'rate limit', 'too many requests', 'payment', 'subscription'];
+// ── Error classification ──────────────────────────────────────────────────
 
-function classifyVoiceError(err) {
+const QUOTA_KEYWORDS = ['quota', 'billing', 'limit exceeded', 'rate limit', 'too many requests', 'payment', 'subscription', '429'];
+
+function classifyError(err) {
   const msg = (err?.message || err?.reason || String(err || '')).toLowerCase();
+
   if (QUOTA_KEYWORDS.some((k) => msg.includes(k))) {
-    return 'Voice quota exceeded. Please try again later or check your ElevenLabs plan.';
+    return {
+      errorState: 'quota_exceeded',
+      errorMessage: 'Voice quota exceeded. Please check your plan or try again later.',
+    };
   }
   if (msg.includes('network') || msg.includes('websocket') || msg.includes('connection')) {
-    return 'Voice connection lost. Please check your internet connection and try again.';
+    return {
+      errorState: 'network_error',
+      errorMessage: 'Voice connection lost. Check your internet connection.',
+    };
   }
   if (msg.includes('timeout') || msg.includes('timed out')) {
-    return 'Voice connection timed out. Please try again.';
+    return {
+      errorState: 'agent_timeout',
+      errorMessage: 'Voice connection timed out. Please try again.',
+    };
   }
-  return err?.message || 'An error occurred with the voice connection.';
+  return {
+    errorState: 'unknown_error',
+    errorMessage: err?.message || 'An unexpected error occurred with the voice connection.',
+  };
 }
+
+// ── Hook ─────────────────────────────────────────────────────────────────
 
 export const useElevenLabs = (options = {}) => {
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [error, setError] = useState(null);
+  const [errorState, setErrorState] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [messages, setMessages] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [micMuted, setMicMuted] = useState(false);
-  const conversationIdRef = useRef(null);
-  const sessionRef = useRef(null); // Track session for text messages
 
-  // Use hardcoded Agent ID for Alpha build
+  const conversationIdRef = useRef(null);
+  const sessionRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+  const lastMessageTimeRef = useRef(null);
+  const agentTimeoutRef = useRef(null);
+
+  const RECONNECT_DELAYS = [1000, 3000];
+
   const agentId = ELEVENLABS_AGENT_ID;
 
-  // Initialize the conversation with callbacks and barge-in fix
+  const clearError = useCallback(() => {
+    setErrorState(null);
+    setErrorMessage(null);
+  }, []);
+
+  const setError = useCallback((err) => {
+    const classified = classifyError(err);
+    setErrorState(classified.errorState);
+    setErrorMessage(classified.errorMessage);
+  }, []);
+
+  // ── Agent timeout watchdog ──────────────────────────────────────────
+  const resetAgentTimeout = useCallback(() => {
+    lastMessageTimeRef.current = Date.now();
+    if (agentTimeoutRef.current) clearTimeout(agentTimeoutRef.current);
+    agentTimeoutRef.current = setTimeout(() => {
+      log('warn', 'Agent timeout: no message for 30s');
+      setErrorState('agent_timeout');
+      setErrorMessage('The AI mentor stopped responding. Session ended.');
+      toast.error('Voice session timed out', {
+        description: 'No response from the AI mentor for 30 seconds.',
+      });
+    }, 30000);
+  }, []);
+
+  const clearAgentTimeout = useCallback(() => {
+    if (agentTimeoutRef.current) {
+      clearTimeout(agentTimeoutRef.current);
+      agentTimeoutRef.current = null;
+    }
+  }, []);
+
   const conversation = useConversation({
-    // ========================================
-    // FIX #1: VOICE CUT-OFF - Disable Barge-In
-    // ========================================
-    // Override conversation settings to prevent agent from being interrupted
-    // by background noise or unintentional sounds
     overrides: {
-      conversation: {
-        // Disable barge-in completely for testing
-        // This prevents the agent from stopping when it detects user audio
-        clientTools: {},
-      },
+      conversation: { clientTools: {} },
     },
 
-    // ========================================
-    // CALLBACKS
-    // ========================================
     onConnect: () => {
       log('info', 'Connected to Agent:', agentId);
       setConnectionStatus('connected');
-      setError(null);
+      clearError();
+      reconnectAttemptsRef.current = 0;
+      resetAgentTimeout();
       options.onConnect?.();
     },
 
@@ -74,35 +116,37 @@ export const useElevenLabs = (options = {}) => {
       setConnectionStatus('disconnected');
       setIsSessionActive(false);
       sessionRef.current = null;
+      clearAgentTimeout();
       options.onDisconnect?.();
     },
 
     onMessage: (message) => {
       log('info', 'Message received:', JSON.stringify(message, null, 2));
-      
-      // Handle different message types from the SDK
-      // The SDK sends various message types including transcripts and agent responses
-      if (message.type === 'user_transcript' || 
-          message.type === 'agent_response' ||
-          message.source === 'user' ||
-          message.source === 'ai') {
-        
+      resetAgentTimeout();
+
+      if (
+        message.type === 'user_transcript' ||
+        message.type === 'agent_response' ||
+        message.source === 'user' ||
+        message.source === 'ai'
+      ) {
         const isUser = message.type === 'user_transcript' || message.source === 'user';
         const content = message.message || message.text || message.content || '';
-        
+
         if (content) {
           const newMessage = {
             id: Date.now() + Math.random(),
             role: isUser ? 'user' : 'assistant',
-            content: content,
+            content,
             timestamp: new Date().toISOString(),
-            isFinal: message.isFinal !== false
+            isFinal: message.isFinal !== false,
           };
-          
-          setMessages(prev => {
-            // For tentative messages, update the last message of same role
+
+          setMessages((prev) => {
             if (!newMessage.isFinal) {
-              const lastIndex = prev.findLastIndex(m => m.role === newMessage.role && !m.isFinal);
+              const lastIndex = prev.findLastIndex(
+                (m) => m.role === newMessage.role && !m.isFinal
+              );
               if (lastIndex !== -1) {
                 const updated = [...prev];
                 updated[lastIndex] = newMessage;
@@ -111,26 +155,55 @@ export const useElevenLabs = (options = {}) => {
             }
             return [...prev, newMessage];
           });
+
+          // Best-effort per-message transcript persistence
+          if (newMessage.isFinal) {
+            postVoiceTranscript({
+              role: newMessage.role,
+              content: newMessage.content,
+              timestamp: newMessage.timestamp,
+              sessionId: conversationIdRef.current,
+            }).catch(() => {});
+          }
         }
       }
-      
+
       options.onMessage?.(message);
     },
 
-    // ========================================
-    // FIX #3: ENHANCED ERROR LOGGING
-    // ========================================
     onError: (err) => {
-      log('error', '=== ERROR EVENT ===');
-      log('error', 'Error object:', err);
-      log('error', 'Error message:', err?.message || 'Unknown error');
-      log('error', 'Error code:', err?.code || 'N/A');
-      log('error', 'Error stack:', err?.stack || 'N/A');
-      log('error', 'Session active:', isSessionActive);
-      log('error', 'Connection status:', connectionStatus);
-      log('error', '===================');
-      
-      setError(classifyVoiceError(err));
+      log('error', 'Voice error:', err);
+      const classified = classifyError(err);
+      setErrorState(classified.errorState);
+      setErrorMessage(classified.errorMessage);
+
+      // Attempt reconnect on transient network errors
+      if (
+        classified.errorState === 'network_error' &&
+        reconnectAttemptsRef.current < RECONNECT_DELAYS.length
+      ) {
+        const delay = RECONNECT_DELAYS[reconnectAttemptsRef.current];
+        reconnectAttemptsRef.current += 1;
+        log('info', `Reconnect attempt ${reconnectAttemptsRef.current} in ${delay}ms`);
+        setTimeout(() => {
+          if (agentId) {
+            toast.info('Reconnecting voice session...');
+            conversation.startSession({ agentId, connectionType: 'webrtc', overrides: { conversation: {} } })
+              .then((id) => {
+                conversationIdRef.current = id;
+                sessionRef.current = conversation;
+                setIsSessionActive(true);
+                clearError();
+              })
+              .catch(() => {
+                log('warn', 'Reconnect failed');
+              });
+          }
+        }, delay);
+      } else {
+        toast.error('Voice connection error', { description: classified.errorMessage });
+      }
+
       options.onError?.(err);
     },
 
@@ -145,124 +218,103 @@ export const useElevenLabs = (options = {}) => {
       options.onStatusChange?.(status);
     },
 
-    // VAD (Voice Activity Detection) score - useful for debugging barge-in
     onVadScore: (score) => {
-      // Only log high scores that might trigger interruption
-      if (score > 0.5) {
-        log('warn', 'VAD Score (potential interruption):', score);
-      }
+      if (score > 0.5) log('warn', 'VAD Score (potential interruption):', score);
     },
 
     onDebug: (debugInfo) => {
       log('info', 'Debug:', debugInfo);
     },
 
-    // Controlled state for volume and mic
     volume: options.volume ?? 1,
     micMuted: micMuted || (options.micMuted ?? false),
   });
 
-  /**
-   * Start a voice session with ElevenLabs Conversational AI
-   * Configured with barge-in disabled to prevent voice cut-off
-   */
+  // ── Session control ──────────────────────────────────────────────────
+
   const startSession = useCallback(async () => {
     if (!agentId) {
-      const errorMsg = 'ElevenLabs Agent ID not configured.';
-      setError(errorMsg);
-      log('error', errorMsg);
+      setErrorState('agent_not_configured');
+      setErrorMessage('ElevenLabs Agent ID not configured. Set REACT_APP_ELEVENLABS_AGENT_ID.');
       return null;
     }
-
-    // Guard against double-start
     if (isSessionActive || connectionStatus === 'connecting') {
       log('warn', 'Session already active or connecting, ignoring duplicate start');
       return null;
     }
 
     try {
-      setError(null);
+      clearError();
       setConnectionStatus('connecting');
-      
-      log('info', 'Starting session with Agent ID:', agentId);
-      
-      // Request microphone permission first
-      log('info', 'Requesting microphone permission...');
+      reconnectAttemptsRef.current = 0;
+
       try {
         await navigator.mediaDevices.getUserMedia({ audio: true });
-        log('info', 'Microphone permission granted');
       } catch (micErr) {
-        const isDenied = micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError';
-        const isNotFound = micErr?.name === 'NotFoundError' || micErr?.name === 'DevicesNotFoundError';
-        let userMessage;
-        if (isDenied) {
-          userMessage = 'Microphone access was denied. Please allow microphone access in your browser settings and try again.';
-        } else if (isNotFound) {
-          userMessage = 'No microphone found. Please connect a microphone and try again.';
-        } else {
-          userMessage = `Microphone error: ${micErr?.message || 'Unknown error'}`;
-        }
-        setError(userMessage);
+        const isDenied =
+          micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError';
+        const isNotFound =
+          micErr?.name === 'NotFoundError' || micErr?.name === 'DevicesNotFoundError';
+
         setConnectionStatus('disconnected');
-        log('error', 'Microphone access failed:', micErr?.name, micErr?.message);
+        if (isDenied) {
+          setErrorState('mic_permission_denied');
+          setErrorMessage(
+            'Microphone access was denied. Please allow mic access in your browser settings.'
+          );
+        } else if (isNotFound) {
+          setErrorState('unknown_error');
+          setErrorMessage('No microphone found. Please connect a microphone and try again.');
+        } else {
+          setErrorState('unknown_error');
+          setErrorMessage(`Microphone error: ${micErr?.message || 'Unknown error'}`);
+        }
         return null;
       }
-      
-      // Start the conversation session with WebRTC for low latency
-      const sessionPromise = conversation.startSession({
-        agentId: agentId,
-        connectionType: 'webrtc',
-        overrides: {
-          conversation: {},
-        },
-      });
 
-      // Timeout after 15 seconds to prevent hanging in "connecting" state
+      const sessionPromise = conversation.startSession({
+        agentId,
+        connectionType: 'webrtc',
+        overrides: { conversation: {} },
+      });
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Connection timed out. Please check your internet connection and try again.')), 15000)
+        setTimeout(
+          () => reject(new Error('Connection timed out. Check your internet connection.')),
+          15000
+        )
       );
 
       const conversationId = await Promise.race([sessionPromise, timeoutPromise]);
-      
+
       conversationIdRef.current = conversationId;
-      sessionRef.current = conversation; // Store reference for text messages
+      sessionRef.current = conversation;
       setIsSessionActive(true);
-      
-      log('info', '=== SESSION STARTED ===');
-      log('info', 'Conversation ID:', conversationId);
-      log('info', 'Agent ID:', agentId);
-      log('info', 'Connection type: WebRTC');
-      log('info', '=======================');
-      
+      log('info', 'Session started. ID:', conversationId);
+
       return conversationId;
     } catch (err) {
-      log('error', '=== SESSION START FAILED ===');
-      log('error', 'Error:', err);
-      log('error', 'Error message:', err?.message);
-      log('error', '============================');
-      
-      setError(err?.message || 'Failed to start voice session');
+      log('error', 'Session start failed:', err);
+      const classified = classifyError(err);
+      setErrorState(classified.errorState);
+      setErrorMessage(classified.errorMessage);
       setConnectionStatus('disconnected');
       setIsSessionActive(false);
       return null;
     }
-  }, [agentId, conversation, connectionStatus, isSessionActive]);
+  }, [agentId, conversation, connectionStatus, isSessionActive, clearError]);
 
-  // End the voice session
   const endSession = useCallback(async () => {
     try {
-      log('info', 'Ending session...');
+      clearAgentTimeout();
       await conversation.endSession();
       setIsSessionActive(false);
       conversationIdRef.current = null;
       sessionRef.current = null;
-      log('info', 'Session ended successfully');
     } catch (err) {
       log('error', 'Failed to end session:', err);
     }
-  }, [conversation]);
+  }, [conversation, clearAgentTimeout]);
 
-  // Toggle session (start/stop)
   const toggleSession = useCallback(async () => {
     if (isSessionActive) {
       await endSession();
@@ -271,83 +323,60 @@ export const useElevenLabs = (options = {}) => {
     }
   }, [isSessionActive, startSession, endSession]);
 
-  // ========================================
-  // FIX #2: DEAD CHAT BOX - Fixed Text Input
-  // ========================================
-  /**
-   * Send a text message to the agent
-   * This properly triggers the agent to respond
-   */
-  const sendTextMessage = useCallback((text) => {
-    if (!text?.trim()) {
-      log('warn', 'sendTextMessage called with empty text');
-      return false;
-    }
+  // ── Text / context messages ──────────────────────────────────────────
 
-    const trimmedText = text.trim();
-    log('info', '=== SENDING TEXT MESSAGE ===');
-    log('info', 'Text:', trimmedText);
-    log('info', 'Session active:', isSessionActive);
-    log('info', 'Conversation status:', conversation.status);
-    
-    // Add user message to local state immediately for UI feedback
-    const userMessage = {
-      id: Date.now(),
-      role: 'user',
-      content: trimmedText,
-      timestamp: new Date().toISOString(),
-      isFinal: true,
-      source: 'text_input'
-    };
-    setMessages(prev => [...prev, userMessage]);
+  const sendTextMessage = useCallback(
+    (text) => {
+      if (!text?.trim()) return false;
+      const trimmed = text.trim();
 
-    // Check if session is active before sending
-    if (!isSessionActive) {
-      log('warn', 'Cannot send text - no active session');
-      log('warn', 'Please start a voice session first by clicking the microphone button');
-      
-      // Add system message to inform user
-      const systemMessage = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: 'Please start a voice session first by clicking the microphone button.',
+      const userMessage = {
+        id: Date.now(),
+        role: 'user',
+        content: trimmed,
         timestamp: new Date().toISOString(),
         isFinal: true,
-        isSystem: true
+        source: 'text_input',
       };
-      setMessages(prev => [...prev, systemMessage]);
-      return false;
-    }
+      setMessages((prev) => [...prev, userMessage]);
 
-    try {
-      // Use the SDK's sendUserMessage method to send text to the agent
-      // This will trigger the agent to respond as if the user spoke
-      log('info', 'Calling conversation.sendUserMessage...');
-      conversation.sendUserMessage(trimmedText);
-      log('info', 'Text message sent successfully');
-      log('info', '============================');
-      return true;
-    } catch (err) {
-      log('error', '=== TEXT MESSAGE FAILED ===');
-      log('error', 'Error:', err);
-      log('error', '===========================');
-      return false;
-    }
-  }, [conversation, isSessionActive]);
+      if (!isSessionActive) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: 'assistant',
+            content: 'Please start a voice session first by clicking the microphone button.',
+            timestamp: new Date().toISOString(),
+            isFinal: true,
+            isSystem: true,
+          },
+        ]);
+        return false;
+      }
 
-  // Send contextual update (doesn't trigger response)
-  const sendContextualUpdate = useCallback((context) => {
-    if (!context?.trim() || !isSessionActive) return;
-    
-    log('info', 'Sending contextual update:', context);
-    try {
-      conversation.sendContextualUpdate(context);
-    } catch (err) {
-      log('error', 'Failed to send contextual update:', err);
-    }
-  }, [conversation, isSessionActive]);
+      try {
+        conversation.sendUserMessage(trimmed);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [conversation, isSessionActive]
+  );
 
-  // Toggle microphone mute (push-to-talk support)
+  const sendContextualUpdate = useCallback(
+    (context) => {
+      if (!context?.trim() || !isSessionActive) return;
+      try {
+        conversation.sendContextualUpdate(context);
+      } catch (err) {
+        log('error', 'Failed to send contextual update:', err);
+      }
+    },
+    [conversation, isSessionActive]
+  );
+
   const toggleMic = useCallback(() => {
     setMicMuted((prev) => {
       log('info', `Mic ${prev ? 'unmuted' : 'muted'}`);
@@ -355,87 +384,71 @@ export const useElevenLabs = (options = {}) => {
     });
   }, []);
 
-  // Clear messages
   const clearMessages = useCallback(() => {
     setMessages([]);
-    log('info', 'Messages cleared');
   }, []);
 
-  // Set volume (0-1 scale)
-  const setVolume = useCallback((volume) => {
-    const clampedVolume = Math.max(0, Math.min(1, volume));
-    log('info', 'Setting volume to:', clampedVolume);
-    conversation.setVolume({ volume: clampedVolume });
-  }, [conversation]);
+  const setVolume = useCallback(
+    (volume) => {
+      conversation.setVolume({ volume: Math.max(0, Math.min(1, volume)) });
+    },
+    [conversation]
+  );
 
-  // Notify agent of user activity (prevents interruption while typing)
   const notifyUserActivity = useCallback(() => {
-    if (isSessionActive) {
-      conversation.sendUserActivity();
-    }
+    if (isSessionActive) conversation.sendUserActivity();
   }, [conversation, isSessionActive]);
 
-  // Cleanup on unmount
+  // ── Cleanup on unmount ───────────────────────────────────────────────
+
   useEffect(() => {
     return () => {
+      clearAgentTimeout();
       if (isSessionActive) {
-        log('info', 'Component unmounting, cleaning up session...');
-        conversation.endSession().catch(err => {
-          log('error', 'Cleanup error:', err);
-        });
+        conversation.endSession().catch(() => {});
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {
-    // Session control
     startSession,
     endSession,
     toggleSession,
     isSessionActive,
-    
-    // Status
+
     status: conversation.status,
     connectionStatus,
     isSpeaking: conversation.isSpeaking,
-    
-    // Messages
+
     messages,
     sendTextMessage,
     sendContextualUpdate,
     clearMessages,
     sendUserActivity: notifyUserActivity,
-    
-    // Mic control (push-to-talk)
+
     micMuted,
     toggleMic,
 
-    // Volume control
     setVolume,
     getInputVolume: conversation.getInputVolume,
     getOutputVolume: conversation.getOutputVolume,
-    
-    // Feedback
+
     canSendFeedback: conversation.canSendFeedback,
     sendFeedback: conversation.sendFeedback,
-    
-    // Error handling
-    error,
-    
-    // Conversation ID
+
+    // Error state
+    errorState,
+    errorMessage,
+    error: errorMessage, // backwards compat
+    clearError,
+
     conversationId: conversationIdRef.current,
-    
-    // Raw conversation object for advanced use
     conversation,
-    
-    // Configuration info
     isConfigured: !!agentId,
-    agentId: agentId,
+    agentId,
   };
 };
 
-// Export the hardcoded Agent ID for verification/testing
 export const ALPHA_AGENT_ID = ELEVENLABS_AGENT_ID;
-
 export default useElevenLabs;

@@ -4,7 +4,10 @@
       "Bash(npm run *)",
       "Bash(npx react-scripts *)",
       "Bash(npx craco *)",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('routes/tasks.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('routes/tasks.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
