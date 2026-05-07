@@ -82,4 +82,4 @@ No scope drifted toward features outside the mission.
 
 ## Demo
 
-> [Phase 0 Demo — Foundation Hardening](https://www.loom.com/share/27bde53248ca482cb205845072dd90fb)
+> [Phase 0 Demo — Foundation Hardening](https://www.loom.com/share/075f806b727948fe82f71cbb11876faf)
