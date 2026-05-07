@@ -62,7 +62,7 @@
 - [x] All Phase 0 deliverables merged.
 - [x] CI green.
 - [x] No P0 / P1 bugs in core flows.
-- [ ] Demo video recorded and linked below.
+- [x] Demo video recorded and linked below.
 - [x] Audit entry written in `REGGIE-STATE.md` (open + close).
 
 ## Mission Alignment Test (P10)
@@ -82,5 +82,4 @@ No scope drifted toward features outside the mission.
 
 ## Demo
 
-> Record a screen capture walking through the Validation Steps above and paste the link here.  
-> _Demo video: [pending — record and update before final merge]_
+> [Phase 0 Demo — Foundation Hardening](https://www.loom.com/share/27bde53248ca482cb205845072dd90fb)
