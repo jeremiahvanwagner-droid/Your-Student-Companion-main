@@ -1,7 +1,7 @@
 # YSC — Current State
 
-**Last updated:** 2026-05-24
-**HEAD:** `055986b` on `main` (Step 7 spec). DB ahead of `main`: Phase 7.1 migrations applied to `ysc-staging` — see S7.1 audit-log entries.
+**Last updated:** 2026-05-24 (session 2)
+**HEAD:** `3416994` on branch `claude/romantic-gould-974395` (Sentry observability) — open as [PR #7](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main/pull/7) targeting `main`. Local `main` at `ae0908b` (placement test guide). DB unchanged.
 **Owner:** Jeremiah Van Wagner
 
 This file is the single at-a-glance snapshot of where YSC stands plus an append-only audit log of step opens/closes. Update the snapshot section in place; only ever **append** rows to the audit log at the bottom.
@@ -13,41 +13,63 @@ This file is the single at-a-glance snapshot of where YSC stands plus an append-
 | | |
 |---|---|
 | 90-day launch target | **~2026-08-20** (~13 weeks from today) |
-| Active step | **Step 7 — Standardized Test Prep** (Phase 7.1 closed; 7.2–7.8 ahead). Spec at [docs/phases/step-7-exams.md](docs/phases/step-7-exams.md). |
+| Active plan | **Next-Ten Initiatives** ([docs/strategy/next-ten.md](docs/strategy/next-ten.md), [docs/strategy/next-ten-implementation.md](docs/strategy/next-ten-implementation.md)). Tier 1 in progress. |
+| Active step | **#1 Production Observability** — wiring landed in [PR #7](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main/pull/7), pending uptime alert verification + Sentry smoke test before S-OBS-CLOSE-001. **#2 Backend CI gate** closed. **Step 7** paused at Phase 7.2 (catalog API live); 7.3+ resumes after #1 + #3 close. |
 | Status | 🟢 ON TRACK |
-| Blocking issue | Vercel deploy still serving the unguarded bundle until `REACT_APP_CLERK_PUBLISHABLE_KEY` is set in Vercel env vars (Clerk wizard handed out a `VITE_`-prefixed variable). Code now hard-fails with "Sign-in is temporarily unavailable" until the env var is renamed and a redeploy is triggered. |
+| Blocking issue | None active. Vercel env var `REACT_APP_CLERK_PUBLISHABLE_KEY` still needs the rename before any prod deploy of PR #7 — code hard-fails with "Sign-in is temporarily unavailable" if missing. New PR #7 also adds `REACT_APP_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG_SLUG`, `SENTRY_PROJECT_SLUG` as Vercel env-var ask. |
 
 ### Live infrastructure
 
 | Service | Reference |
 |---|---|
-| GitHub | [jeremiahvanwagner-droid/Your-Student-Companion-main](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main) |
-| Vercel (frontend) | https://your-student-companion-main.vercel.app |
+| GitHub | [jeremiahvanwagner-droid/Your-Student-Companion-main](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main) (public — flipped 2026-05-24 to enable branch protection on Free plan) |
+| Vercel (frontend) | https://ysc.growthbychoice.com (production, custom domain) + https://your-student-companion-main.vercel.app (Vercel default). Latest prod deploy `dpl_HRfUbMx83bJCzfST7RZGbULBUMis` on `ae0908b`; new deploy queued 2026-05-24 after PostHog/BetterStack setup. |
 | Supabase project | `uvyvvaxufmylqavewvex` (ysc-staging) — PG 17.6, ACTIVE_HEALTHY |
 | Stripe mode | ✅ **Test** mode (`sk_test_51Ta…`); promotion to Live deferred to post-QA |
 | Stripe webhook destination | Created 2026-05-23 → `https://uvyvvaxufmylqavewvex.supabase.co/functions/v1/stripe-webhook`; subscribed to 7 events |
 | Clerk | `pk_test_…` (test mode, intentional during build) |
+| Sentry | Project `javascript-react` (enrolled 2026-05-24). DSN in `.env.local` + `backend/.env`. NOT yet activated in prod — depends on [PR #7](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main/pull/7) merge + Vercel env var population. |
+| Better Stack | Uptime monitoring active (account: `support@truthjblue.com`). Monitoring `https://your-student-companion-main.vercel.app` every 3 min. Backend `/api/health` monitor deferred until FastAPI is deployed. |
+| PostHog | Account enrolled 2026-05-24. Code wiring is plan #7 (week 5); not yet started in any branch. |
+| Resend | API key live in `backend/.env`. Code wiring is plan #5 (Step 4.5 grandfather email + future transactional sends); not yet started. |
 
 ### Right now
 
-- **Done this session (2026-05-24):**
-  - **Step 4 committed at last** — `f9e2e04` shipped the subscription checkout UI work that had been sitting uncommitted in the working tree on 2026-05-23 (21 files, +1862).
-  - **Loom walkthrough remediation** — five issues recorded by the user mapped to four independent bugs after investigation. All fixed in code across three commits:
-    - `2b163fc` (crisis fixes): production `App.js` now refuses to render the shell unguarded if Clerk vars are missing (root cause of "auth entirely broken"); `LandingPage` `SafeSignInButton`/`SafeSignUpButton` no longer recurse to themselves (root cause of "account creation inaccessible"); `/app/legacy` moved under the auth guard; `TruthLine` accepts a `currentWeek` prop with an empty state CTA (kills the hardcoded "Week 6"); `TaskManager` errors surface via toasts so failures are visible.
-    - `b31c471` (phase 2 + auth polish): new 6th onboarding step captures `semester_start_date` (stored nested in `study_preferences` for now; Phase 3 promotes to a top-level column); `UserSettings` editor with merge-aware save so the date field doesn't clobber `subjects`/`notes`; new `NotFoundPage` replaces the catch-all redirect; `Gatekeeper` clears `ysc_onboarding_*` localStorage on unauthenticated session resolve (kills cross-user state inheritance); `AppAccessGuard` retry screen instead of localStorage fallback on profile-fetch errors (kills the regression where stale localStorage pinned new users past onboarding).
-    - `bd330c4` (CI unblock): one-line `react-hooks/rules-of-hooks` fix in `NotFoundPage`; ESLint caught it under `CI=true` even though jest passed.
-  - **Test + build hardening (this commit, see W1-HARDEN-001)**:
-    - Extracted `AppAccessGuard` to `src/components/AppAccessGuard.jsx` so it can be unit-tested in isolation.
-    - **+15 regression tests:** 9 for `AppAccessGuard` (including the critical "stale localStorage does NOT grant access on fetch failure" test), 4 for `NotFoundPage`, 2 for `Gatekeeper` localStorage cleanup. Frontend suite now 56 passing (was 41).
-    - New `scripts/check-env.js` wired as a `prebuild` hook in `package.json`. Vercel will now fail loudly with a listed-out error if `REACT_APP_CLERK_PUBLISHABLE_KEY`/`REACT_APP_SUPABASE_URL`/`REACT_APP_SUPABASE_ANON_KEY`/`REACT_APP_API_BASE_URL` are missing, instead of silently producing an unguarded bundle. CI workflow uses `npx craco build` directly so the prebuild hook intentionally doesn't fire there (we don't want CI to fail just because workflow secrets aren't wired).
+- **Done this session (2026-05-24, session 2):**
+  - **Next-Ten plan #2 (Backend CI gate) closed** — `.github/workflows/ci.yml` already triggered `backend-test` on PRs; the missing piece was branch protection on GitHub. Repo flipped from private → public after pre-flip safety scan (no secrets in git history, `.gitignore` excludes `.env*`). Classic branch protection rule now active on `main`: required status checks (`backend-test` + `build`), required PR (0 approvals — solo), conversation resolution required, force pushes + deletions blocked. Audit: S-CI-OPEN-001, S-CI-REPO-VIS-001, S-CI-CLOSE-001.
+  - **Next-Ten plan #1 (Production Observability) — code/docs landed in PR #7** (commit `3416994`, 23 files, +1679):
+    - **Frontend Sentry** — `@sentry/react` init at app boot, `Sentry.ErrorBoundary` with retry fallback, scrubPII strips emails/auth/cookies, Clerk user id stamped in AppAccessGuard + cleared in Gatekeeper, soft env-check warning in prebuild. Tests 56 → 75.
+    - **Backend Sentry** — `sentry-sdk[fastapi]` + `python-json-logger`, new `backend/lib/sentry_init.py` + `backend/lib/request_id.py` (X-Request-ID middleware with Sentry tag propagation), `server.py` JSON structured logging, `clerk_auth.py` user identification, `routes/webhooks.py` Stripe event breadcrumbs/tags. Tests 70 → 93.
+    - **Source maps** — `@sentry/webpack-plugin` in `craco.config.js`, uploads + deletes `.map` files on prod builds.
+    - **Runbook** — new [docs/runbooks/observability.md](docs/runbooks/observability.md) with dashboard refs, debugging via request_id, PII guarantees, smoke test, emergency disable.
+    - **Worktree fix** — `craco.config.js` Jest testMatch now uses posix-normalized cwd; previously the `.claude/` segment in Claude Code worktree paths broke glob matching on Windows.
+  - **Uptime monitor live** — Better Stack free tier configured (auto-created during onboarding). Monitors `https://your-student-companion-main.vercel.app` every 3 min. Backend `/api/health` monitor deferred until backend hosting decided.
+  - **Three Tier-1 vendor decisions resolved** — Sentry (project `javascript-react`), Better Stack (uptime), Resend (API key live in `backend/.env`). PostHog enrolled but key wiring deferred to plan #7 (week 5).
 
-- **Next steps (in order):**
-  1. **Vercel env-var rename + redeploy** — copy the `pk_test_…` (or `pk_live_…`) value from the Clerk-provided `VITE_CLERK_PUBLISHABLE_KEY` into Vercel under the name `REACT_APP_CLERK_PUBLISHABLE_KEY`. Confirm `REACT_APP_SUPABASE_URL`, `REACT_APP_SUPABASE_ANON_KEY`, `REACT_APP_API_BASE_URL` are also present for Production. Trigger a redeploy. The new prebuild hook will catch any remaining gaps.
-  2. **Smoke test the redeployed app** (incognito → "Get Started" → Clerk modal → sign up → onboarding 6 steps → Dashboard shows Week 1 → "New Task" toasts on submit).
-  3. **Manual QA pass** of [STORE_WEBHOOK_RUNBOOK.md](backend/STORE_WEBHOOK_RUNBOOK.md) §12 with the 4242 test card. Start with §12.1 (Degree Bundle Nursing monthly).
-  4. **Phase 3 schema migration** — promote `study_preferences.semester_start_date` to a top-level `student_profiles.semester_start_date` column. Requires Supabase migration + Pydantic field addition. Deferred from this batch because it touches prod schema; needs explicit user sign-off.
-  5. **Step 4.5 — Grandfather email** (recipient SQL in runbook §11). Needs an email provider decision: Resend / Postmark / SES.
-  6. **Step 5+** per the 12-step plan table below.
+- **Pending to fully close #1 Observability (S-OBS-CLOSE-001), in order:**
+  1. **Add Sentry env vars to Vercel** ([Project Settings → Environment Variables](https://vercel.com/truth-j-blues-projects/your-student-companion-main/settings/environment-variables)). Four vars for Production scope:
+     - `REACT_APP_SENTRY_DSN` (same value as `backend/.env`'s `SENTRY_DSN`)
+     - `SENTRY_AUTH_TOKEN` (from `.env.local`; never expose publicly)
+     - `SENTRY_ORG_SLUG`
+     - `SENTRY_PROJECT_SLUG`
+     Plus ensure outstanding `REACT_APP_CLERK_PUBLISHABLE_KEY` rename is done (carryover from previous session).
+  2. **Merge [PR #7](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main/pull/7)** — CI is fully green (`build` SUCCESS, `backend-test` SUCCESS, Vercel preview SUCCESS). Branch is mergeable. This activates Sentry in production once Vercel rebuilds with the env vars from step 1.
+  3. **Sentry end-to-end smoke test** — `npm start` locally (or use the deployed prod build), sign in, throw an error in devtools console, confirm event lands in Sentry within 1 min with Clerk user id + request_id tag + **no email in JSON**. Per [docs/runbooks/observability.md §8](docs/runbooks/observability.md).
+  4. **Better Stack alert verification** — confirm "alert after 2 failures" set + test email arrives at `support@truthjblue.com`.
+  5. Append **S-OBS-CLOSE-001** once steps 1-4 confirmed.
+
+- **Known issues from 2026-05-24 Perplexity diagnostic (audit S-DIAG-001):**
+  - 🔴 **Fabricated Schema.org `aggregateRating`** in [public/index.html](public/index.html) showing `4.9 stars` over `50000 reviews`. Violates Google Search Quality Guidelines; risk of manual penalty or rich-result suppression. **Must remove or replace before any SEO/public push.** Fix is one HTML edit, ~5 minutes.
+  - 🟠 **PWA "offline dictionary" claim** not yet true — already known (R4 in next-ten risk register, addressed by plan #8 honesty fix or real PWA).
+  - 🟡 **Supabase pre-existing advisors**: `is_admin()` RPC publicly executable + leaked-password protection OFF. Pre-date Step 7. Fix before public launch.
+
+- **After #1 closes (in order per the plan):**
+  1. **Next-Ten #3 — Manual subscription QA pass** of [STORE_WEBHOOK_RUNBOOK.md §12](backend/STORE_WEBHOOK_RUNBOOK.md) with Stripe `4242` test card. Now backed by Sentry capture if any flow breaks.
+  2. **Next-Ten #8 honesty fix** (≤10 min) — strip "offline dictionary" claims from `src/pages/LandingPage.jsx` and the matching FAQPage Schema.org block. Same edit pass can fix the fabricated `aggregateRating`.
+  3. **Next-Ten #4 — Step 7 Phase 7.3** (attempt lifecycle + scoring engine) per [docs/phases/step-7-exams.md](docs/phases/step-7-exams.md).
+  4. **Next-Ten #5 — Email infra + Step 4.5 grandfather email** (Resend already enrolled).
+  5. **Next-Ten #7 — PostHog analytics wire-up** (key still needs harvest).
+  6. Etc per [docs/strategy/next-ten.md §12-Week Sequencing](docs/strategy/next-ten.md).
 
 - **Recovery refs (local-only tags):**
   - `step1-completed` → ai_mentor 422 fix attempt (redundant with origin; recover if ever needed)
@@ -111,3 +133,7 @@ Add new rows; never edit or remove existing rows. Use the next sequential entry 
 | S-OBS-BACKEND-001 | 2026-05-24 | IMPL | next-ten-#1-observability | DONE | Backend Sentry wiring: `sentry-sdk[fastapi]>=2.18.0` + `python-json-logger>=2.0.7` pinned. New `backend/lib/sentry_init.py` (init + scrub_pii_event + identify_sentry_user, FastApiIntegration + StarletteIntegration). New `backend/lib/request_id.py` middleware (echo or generate per-request X-Request-ID, stamp Sentry scope, expose via CORS). `server.py` switched to JSON structured logging; init_sentry called at module import before FastAPI() construction; RequestIdMiddleware registered before CORS with X-Request-ID added to `expose_headers`. `clerk_auth.py` calls `identify_sentry_user` after JWT verify (clerk_user_id) and after app-user lookup (adds app_user_id). `routes/webhooks.py` adds Sentry breadcrumb with stripe event id+type before handling. 23 new backend tests (12 scrub + 6 init + 7 request_id); backend suite 70 → 93. |
 | S-OBS-SOURCEMAPS-001 | 2026-05-24 | IMPL | next-ten-#1-observability | DONE | `@sentry/webpack-plugin@^5.3.0` wired into `craco.config.js` for production builds. Reads `SENTRY_AUTH_TOKEN` + `SENTRY_ORG_SLUG` + `SENTRY_PROJECT_SLUG` at build time. Uploads source maps, then deletes `.map` files from `./build/**` so they aren't world-readable on the CDN. No-ops with console warning when env vars missing (build still succeeds). `craco.config.js` also now loads `.env.local` (CRA convention) before `.env` so local prod builds can test source-map upload. `.env.example` updated with the new Sentry variables. |
 | S-OBS-RUNBOOK-001 | 2026-05-24 | DOCS | next-ten-#1-observability | DONE | New [docs/runbooks/observability.md](docs/runbooks/observability.md): dashboard locations, wiring composition (frontend + backend + logging + source maps), cross-system debugging via request_id, environment tagging table, PII guarantees + leak-response procedure, cost/sampling knobs, two-minute end-to-end smoke test, emergency disable instructions. |
+| S-OBS-COMMIT-001 | 2026-05-24 | STEP_COMMIT | next-ten-#1-observability | DONE | Sentry observability committed and pushed as `3416994` on `claude/romantic-gould-974395`. [PR #7](https://github.com/jeremiahvanwagner-droid/Your-Student-Companion-main/pull/7) opened against `main`. 23 files +1679. CI gates (`backend-test` + `build`) will run on PR per the branch-protection rule landed in S-CI-CLOSE-001. |
+| S-OBS-UPTIME-001 | 2026-05-24 | INFRA_CHANGE | next-ten-#1-observability | DONE | Better Stack free tier signed up (account: `support@truthjblue.com`). Uptime monitor auto-created during onboarding for `https://your-student-companion-main.vercel.app`, status green (Up), 3-min check interval. Backend `/api/health` monitor deferred until FastAPI backend has a public deploy URL. User to verify "alert after 2 consecutive failures" setting + send test email before final close. |
+| S-VENDOR-POSTHOG-001 | 2026-05-24 | INFRA_CHANGE | next-ten-#7-analytics | OPEN | PostHog account enrolled. Code wiring (plan #7) scheduled for week 5 per [docs/strategy/next-ten.md](docs/strategy/next-ten.md). No code references in any branch yet — confirmed by Perplexity diagnostic report. When code wiring starts: keys go in `.env.local` as `REACT_APP_POSTHOG_KEY` + `REACT_APP_POSTHOG_HOST` plus matching Vercel env vars. |
+| S-DIAG-001 | 2026-05-24 | DIAGNOSTIC | full-stack-audit | INFORMATIONAL | Perplexity third-party diagnostic ran 4:47 PM CDT. Confirms: live site `https://ysc.growthbychoice.com` 200 OK on `dpl_HRfUbMx83bJCzfST7RZGbULBUMis`; PR #7 (Sentry observability) mergeable with all CI green (`build` SUCCESS, `backend-test` SUCCESS, Vercel preview SUCCESS) but **NOT yet merged so Sentry is NOT in production**; zero runtime errors logged in past 24h (low traffic, no signal); subscription flow never QA'd (per `STORE_WEBHOOK_RUNBOOK §12`). Flags two pre-existing risks newly relevant: (1) **fabricated Schema.org `aggregateRating` in `public/index.html`** showing `4.9 stars` over `50000 reviews` — Google Search Quality Guidelines violation; (2) PWA "offline dictionary" claim in marketing copy not yet true (already R4 in risk register). Plus Supabase advisor warnings predating Step 7: `is_admin()` RPC publicly executable + leaked-password protection OFF. None blocking current work. See [docs/audits/2026-05-24-perplexity-full-stack.md](docs/audits/2026-05-24-perplexity-full-stack.md) when filed. |
