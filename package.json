@@ -61,6 +61,7 @@
   },
   "scripts": {
     "start": "craco start",
+    "prebuild": "node scripts/check-env.js",
     "build": "craco build",
     "test": "craco test",
     "test:coverage": "craco test --watchAll=false --ci --coverage --coverageReporters=text --coverageReporters=lcov --coverageReporters=json-summary"

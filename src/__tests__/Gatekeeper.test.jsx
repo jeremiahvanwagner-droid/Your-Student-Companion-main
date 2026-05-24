@@ -48,4 +48,33 @@ describe("Gatekeeper", () => {
     expect(screen.getByTestId("landing-page")).toBeInTheDocument();
   });
 
+  // REGRESSION: when Clerk resolves an unauthenticated session (post-sign-out
+  // or fresh visit on a shared device), the Gatekeeper must wipe any
+  // onboarding state lingering in localStorage. Without this, signing in as
+  // a different user inherits the prior user's ysc_onboarding_completed=true
+  // and skips the wizard.
+  it("clears onboarding localStorage when an unauthenticated session resolves", () => {
+    localStorage.setItem("ysc_onboarding_completed", "true");
+    localStorage.setItem("ysc_onboarding_profile", JSON.stringify({ grade_level: "Senior" }));
+
+    mockUseAuth.mockReturnValue({ isLoaded: true, isSignedIn: false });
+    const Gatekeeper = loadGatekeeper({ REACT_APP_CLERK_PUBLISHABLE_KEY: "pk_test_fake" });
+    render(<MemoryRouter><Gatekeeper /></MemoryRouter>);
+
+    expect(localStorage.getItem("ysc_onboarding_completed")).toBeNull();
+    expect(localStorage.getItem("ysc_onboarding_profile")).toBeNull();
+  });
+
+  it("does NOT clear localStorage while Clerk is still loading", () => {
+    localStorage.setItem("ysc_onboarding_completed", "true");
+
+    mockUseAuth.mockReturnValue({ isLoaded: false, isSignedIn: false });
+    const Gatekeeper = loadGatekeeper({ REACT_APP_CLERK_PUBLISHABLE_KEY: "pk_test_fake" });
+    render(<MemoryRouter><Gatekeeper /></MemoryRouter>);
+
+    // Cleanup must wait until Clerk has finished loading; otherwise a slow
+    // session restore would briefly wipe an authenticated user's state.
+    expect(localStorage.getItem("ysc_onboarding_completed")).toBe("true");
+  });
+
 });

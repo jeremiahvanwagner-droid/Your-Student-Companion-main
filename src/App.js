@@ -1,19 +1,13 @@
 import "@/App.css";
-import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { ClerkProvider, useAuth } from "@clerk/clerk-react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { ClerkProvider } from "@clerk/clerk-react";
 
+import AppAccessGuard from "@/components/AppAccessGuard";
 import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
 import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
 import { UserSubscriptionProvider } from "@/context/UserSubscriptionContext";
-import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
-import {
-  fetchMyStudentProfile,
-  resolveCurrentAppUser,
-  setOnboardingComplete,
-} from "@/lib/onboarding";
 import Dashboard from "@/pages/Dashboard";
 import FocusPage from "@/pages/FocusPage";
 import HomePage from "@/pages/HomePage";
@@ -93,140 +87,6 @@ const clerkAppearance = {
     },
   },
 };
-
-function LoadingScreen() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-3">
-        <div className="h-12 w-12 animate-pulse rounded-2xl bg-accent/20" />
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    </div>
-  );
-}
-
-function ProfileLoadErrorScreen({ message, onRetry }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="max-w-md space-y-3 text-center">
-        <h1 className="text-xl font-semibold text-foreground">We couldn't load your profile</h1>
-        <p className="text-sm text-muted-foreground">{message}</p>
-        <Button
-          onClick={onRetry}
-          className="bg-accent text-accent-foreground hover:bg-accent/90"
-        >
-          Try again
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function AppAccessGuard({ children }) {
-  const { isLoaded, isSignedIn } = useAuth();
-  const location = useLocation();
-  const [onboardingState, setOnboardingState] = useState({
-    loading: true,
-    completed: false,
-    error: null,
-  });
-  // Bumping this re-runs the load effect on demand from the error screen's
-  // Retry button. Cleaner than re-checking pathname or unmounting.
-  const [retryCounter, setRetryCounter] = useState(0);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!isLoaded) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    if (!isSignedIn) {
-      if (isMounted) {
-        setOnboardingState({
-          loading: false,
-          completed: false,
-          error: null,
-        });
-      }
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    const loadOnboardingStatus = async () => {
-      setOnboardingState((prev) => ({ ...prev, loading: true, error: null }));
-
-      try {
-        await resolveCurrentAppUser();
-        const payload = await fetchMyStudentProfile();
-        // Server's onboarding_completed is the source of truth. A missing
-        // profile (payload.profile == null) correctly resolves to false here,
-        // which routes the user to /app/onboarding below.
-        const completed = Boolean(payload?.profile?.onboarding_completed);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setOnboardingComplete(completed);
-        setOnboardingState({ loading: false, completed, error: null });
-      } catch (err) {
-        if (!isMounted) {
-          return;
-        }
-
-        // IMPORTANT: do NOT fall back to localStorage's isOnboardingComplete()
-        // here. That fallback let stale state from a previous user/session
-        // pin a brand-new sign-in past onboarding. Surface a retry screen
-        // instead — the server is the source of truth.
-        setOnboardingState({
-          loading: false,
-          completed: false,
-          error: err?.message || "Could not load your profile.",
-        });
-      }
-    };
-
-    loadOnboardingStatus();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isLoaded, isSignedIn, location.pathname, retryCounter]);
-
-  if (!isLoaded || onboardingState.loading) {
-    return <LoadingScreen />;
-  }
-
-  if (!isSignedIn) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (onboardingState.error) {
-    return (
-      <ProfileLoadErrorScreen
-        message={onboardingState.error}
-        onRetry={() => setRetryCounter((n) => n + 1)}
-      />
-    );
-  }
-
-  const onboardingDone = onboardingState.completed;
-  const onOnboardingRoute = location.pathname === "/app/onboarding";
-
-  if (!onboardingDone && !onOnboardingRoute) {
-    return <Navigate to="/app/onboarding" replace />;
-  }
-
-  if (onboardingDone && onOnboardingRoute) {
-    return <Navigate to="/app/dashboard" replace />;
-  }
-
-  return children;
-}
 
 function AppRoutes({ withAuthGuard }) {
   const shellWithPurchases = (
