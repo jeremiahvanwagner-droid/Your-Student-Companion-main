@@ -15,16 +15,9 @@ import { Button } from "@/components/ui/button";
  */
 export default function NotFoundPage() {
   const location = useLocation();
-
-  // Clerk's useAuth is safe here — this component is only mounted inside
-  // ClerkProvider (the dev fallback in App.js renders LandingPage only).
-  let isSignedIn = false;
-  try {
-    isSignedIn = useAuth().isSignedIn === true;
-  } catch {
-    // Defensive: if Clerk isn't mounted for some reason, treat as signed-out.
-    isSignedIn = false;
-  }
+  // NotFoundPage is only mounted inside ClerkProvider (App.js renders
+  // LandingPage-only when Clerk isn't configured), so useAuth is safe here.
+  const { isSignedIn } = useAuth();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
