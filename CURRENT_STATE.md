@@ -1,7 +1,7 @@
 # YSC — Current State
 
 **Last updated:** 2026-05-24
-**HEAD:** `bd330c4` on `main` (this commit will bump it again — see audit log W1-HARDEN-001)
+**HEAD:** `055986b` on `main` (Step 7 spec). DB ahead of `main`: Phase 7.1 migrations applied to `ysc-staging` — see S7.1 audit-log entries.
 **Owner:** Jeremiah Van Wagner
 
 This file is the single at-a-glance snapshot of where YSC stands plus an append-only audit log of step opens/closes. Update the snapshot section in place; only ever **append** rows to the audit log at the bottom.
@@ -13,7 +13,7 @@ This file is the single at-a-glance snapshot of where YSC stands plus an append-
 | | |
 |---|---|
 | 90-day launch target | **~2026-08-20** (~13 weeks from today) |
-| Active step | **Walkthrough remediation** (✅ all five findings fixed in code; Vercel env-var rename pending on user) |
+| Active step | **Step 7 — Standardized Test Prep** (Phase 7.1 closed; 7.2–7.8 ahead). Spec at [docs/phases/step-7-exams.md](docs/phases/step-7-exams.md). |
 | Status | 🟢 ON TRACK |
 | Blocking issue | Vercel deploy still serving the unguarded bundle until `REACT_APP_CLERK_PUBLISHABLE_KEY` is set in Vercel env vars (Clerk wizard handed out a `VITE_`-prefixed variable). Code now hard-fails with "Sign-in is temporarily unavailable" until the env var is renamed and a redeploy is triggered. |
 
@@ -67,7 +67,7 @@ Targeting a beta launch by ~2026-08-20. See `YSC_ROADMAP.md` for full phase deta
 | **4** | **Subscription checkout + portal UI** | ✅ done | Committed `f9e2e04` on 2026-05-24. `/app/subscribe`, billing portal, trial-only-on-first-sub, subscription-aware pack gating, 17 new tests, runbook §12. Manual QA still pending. |
 | 5 | Notes + manual flashcards (free tier) | ⏳ pending | Independent of 3/4; can run parallel |
 | 6 | Team Messaging Board (real-time chat, IAP) | ⏳ pending | Depends on 3 (entitlement gating) |
-| 7 | Placement tests + 50-state question model | ⏳ pending | Independent |
+| **7** | **Placement tests + 50-state question model** | 🔄 in progress | Phase 7.1 closed 2026-05-24 (schema + RLS + NY Regents Algebra I seed). 7.2–7.8 ahead. Spec: [docs/phases/step-7-exams.md](docs/phases/step-7-exams.md) |
 | 8 | Content authoring admin + delivery API | ⏳ pending | Depends on 3 (entitlement gating) |
 | 9 | SM-2 review + Study Planner + Weekly Report | ⏳ pending | Independent |
 | 10 | AI content generation + reminders/notifications | ⏳ pending | Depends on 8 |
@@ -100,3 +100,5 @@ Add new rows; never edit or remove existing rows. Use the next sequential entry 
 | W1-FIX-002 | 2026-05-24 | WALKTHROUGH_FIX | loom-walkthrough-remediation | IN_PROGRESS | Phase 2 + auth polish commit `b31c471` — 6th onboarding step captures semester_start_date; UserSettings editor with merge-aware save; NotFoundPage replaces catch-all redirect; Gatekeeper clears localStorage on sign-out; AppAccessGuard retry screen instead of localStorage fallback. 7 files, +263/-15. 41/41 tests still pass. |
 | W1-FIX-003 | 2026-05-24 | WALKTHROUGH_FIX | loom-walkthrough-remediation | IN_PROGRESS | CI unblock commit `bd330c4` — NotFoundPage called useAuth conditionally inside a try/catch, violating react-hooks/rules-of-hooks. ESLint caught it under CI=true; jest didn't. Defensive try/catch was unnecessary (NotFoundPage only mounts inside ClerkProvider). 1 file, +3/-10. |
 | W1-HARDEN-001 | 2026-05-24 | WALKTHROUGH_HARDEN | loom-walkthrough-remediation | CLOSED | This commit. Extracted AppAccessGuard to its own file. Added 15 regression tests (9 AppAccessGuard, 4 NotFoundPage, 2 Gatekeeper localStorage cleanup) — frontend suite 41 → 56. Added scripts/check-env.js as a prebuild hook so Vercel fails loudly with a listed-out error when REACT_APP_* env vars are missing (would have prevented the original walkthrough disaster). Updated CURRENT_STATE.md and memory. |
+| S7-OPEN-001 | 2026-05-24 | STEP_OPEN | step-7-exams | OPEN | Architecture spec committed as `055986b`: [docs/phases/step-7-exams.md](docs/phases/step-7-exams.md). 8 new tables proposed + student_profiles.state column. Decisions locked: pricing = All-Access bundles + per-exam packs (no new tier); MVP scope = 8 exams (Regents Alg I, STAAR G8 Math, CAASPP G8 Math, PERT, SHSAT, HSPT, ACT, AP Biology); content strategy per §11.3. |
+| S7.1-CLOSE-001 | 2026-05-24 | STEP_CLOSE | step-7.1-schema | CLOSED | Phase 7.1 migrations applied to `ysc-staging`: `exams_schema_v1` (7 tables + indexes + RLS-enable + updated_at triggers), `exams_state_column` (student_profiles.state char(2)), `exams_rls_policies_v1` (catalog tables: anon+authenticated read where published / is_admin() writes; owner tables: user_id=auth.uid() with admin override). Seeded NY Regents Algebra I + 4 sections + 1 original sample question for end-to-end model validation. get_advisors(security) clean of new findings (2 pre-existing warnings: is_admin() RPC executable, leaked-password protection off — both predate Step 7). No code changes. |
