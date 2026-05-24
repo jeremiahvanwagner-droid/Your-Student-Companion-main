@@ -45,6 +45,7 @@ from routes.users import router as users_router
 from routes.tasks import router as tasks_router
 from routes.subjects import router as subjects_router
 from routes.focus import router as focus_router
+from routes.exams import router as exams_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
@@ -53,6 +54,7 @@ app.include_router(users_router)
 app.include_router(tasks_router)
 app.include_router(subjects_router)
 app.include_router(focus_router)
+app.include_router(exams_router)
 
 
 # ============================================
