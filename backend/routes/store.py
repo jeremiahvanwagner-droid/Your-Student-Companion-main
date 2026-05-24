@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
 import stripe
@@ -14,6 +14,42 @@ from lib.clerk_auth import AppAuthContext, ensure_owner_or_admin, get_app_auth_c
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 router = APIRouter(prefix="/api/store", tags=["Store"])
+
+
+class SubscriptionCheckoutRequest(BaseModel):
+    tier: Literal["degree_bundle", "all_access"]
+    cadence: Literal["monthly", "annual"]
+    degree_plan_id: Optional[int] = None
+    success_url: str
+    cancel_url: str
+
+
+class SubscriptionCheckoutResponse(BaseModel):
+    session_id: str
+    checkout_url: str
+    tier: str
+    cadence: str
+
+
+class SubscriptionResponse(BaseModel):
+    id: int
+    tier: Optional[str] = None
+    plan_type: Optional[str] = None
+    degree_plan_id: Optional[int] = None
+    status: Optional[str] = None
+    current_period_start: Optional[str] = None
+    current_period_end: Optional[str] = None
+    trial_end: Optional[str] = None
+    cancel_at_period_end: Optional[bool] = None
+    stripe_subscription_id: Optional[str] = None
+
+
+class PortalRequest(BaseModel):
+    return_url: str
+
+
+class PortalResponse(BaseModel):
+    portal_url: str
 
 
 class CheckoutRequest(BaseModel):
@@ -549,3 +585,270 @@ def purchase_pack_legacy(
         "session_id": checkout_response.session_id,
         "status": checkout_response.status,
     }
+
+
+def _fetch_subscription_plan(admin_client, tier: str) -> Dict[str, Any]:
+    rows = (
+        admin_client.table("subscription_plans")
+        .select(
+            "id,tier,name,stripe_product_id,"
+            "stripe_monthly_price_id,stripe_annual_price_id,trial_days,is_active"
+        )
+        .eq("tier", tier)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404, detail=f"Subscription plan not found for tier: {tier}"
+        )
+    return rows[0]
+
+
+def _ensure_stripe_customer(
+    admin_client,
+    stripe_client,
+    *,
+    user_id: str,
+    clerk_id: Optional[str],
+    email: Optional[str],
+) -> str:
+    rows = (
+        admin_client.table("users")
+        .select("id,stripe_customer_id,email,clerk_id")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    existing = rows[0].get("stripe_customer_id")
+    if existing:
+        return existing
+
+    customer = stripe_client.Customer.create(
+        email=email or rows[0].get("email"),
+        metadata={
+            "user_id": user_id,
+            "clerk_id": clerk_id or rows[0].get("clerk_id") or "",
+        },
+    )
+
+    admin_client.table("users").update({"stripe_customer_id": customer.id}).eq(
+        "id", user_id
+    ).execute()
+
+    return customer.id
+
+
+@router.post("/subscriptions/checkout", response_model=SubscriptionCheckoutResponse)
+def create_subscription_checkout(
+    request: SubscriptionCheckoutRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    target_user_id = auth.app_user_id
+
+    if not _is_uuid(target_user_id):
+        raise HTTPException(status_code=422, detail="Resolved user_id must be a UUID")
+
+    if request.tier == "degree_bundle" and not request.degree_plan_id:
+        raise HTTPException(
+            status_code=422,
+            detail="degree_plan_id is required for the Degree Bundle tier",
+        )
+
+    admin_client = _admin_client()
+    _ensure_purchase_tables_ready(admin_client)
+    stripe_client = _stripe_client()
+
+    plan = _fetch_subscription_plan(admin_client, request.tier)
+
+    price_id = (
+        plan.get("stripe_monthly_price_id")
+        if request.cadence == "monthly"
+        else plan.get("stripe_annual_price_id")
+    )
+    if not price_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Stripe price not provisioned for {request.tier} {request.cadence}. "
+                "Run backend/scripts/create_stripe_subscriptions.py."
+            ),
+        )
+
+    if request.tier == "degree_bundle":
+        degree_rows = (
+            admin_client.table("degree_plans")
+            .select("id,name,slug,is_active")
+            .eq("id", request.degree_plan_id)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not degree_rows:
+            raise HTTPException(
+                status_code=404, detail="Degree plan not found or inactive"
+            )
+
+    customer_id = _ensure_stripe_customer(
+        admin_client,
+        stripe_client,
+        user_id=target_user_id,
+        clerk_id=auth.clerk_user_id,
+        email=auth.email,
+    )
+
+    prior_subs = (
+        admin_client.table("user_subscriptions")
+        .select("id")
+        .eq("user_id", target_user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    trial_days = int(plan.get("trial_days") or 14) if not prior_subs else None
+
+    metadata = {
+        "user_id": target_user_id,
+        "tier": request.tier,
+        "cadence": request.cadence,
+    }
+    if request.degree_plan_id is not None:
+        metadata["degree_plan_id"] = str(request.degree_plan_id)
+
+    subscription_data: Dict[str, Any] = {"metadata": dict(metadata)}
+    if trial_days:
+        subscription_data["trial_period_days"] = trial_days
+
+    try:
+        session = stripe_client.checkout.Session.create(
+            mode="subscription",
+            customer=customer_id,
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=request.success_url,
+            cancel_url=request.cancel_url,
+            client_reference_id=target_user_id,
+            metadata=metadata,
+            subscription_data=subscription_data,
+            allow_promotion_codes=True,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe subscription checkout creation failed: {exc}",
+        ) from exc
+
+    admin_client.table("user_subscriptions").insert(
+        {
+            "user_id": target_user_id,
+            "tier": request.tier,
+            "plan_type": f"{request.tier}_{request.cadence}",
+            "degree_plan_id": request.degree_plan_id,
+            "stripe_customer_id": customer_id,
+            "stripe_price_id": price_id,
+            "status": "pending",
+        }
+    ).execute()
+
+    write_audit_log(
+        admin_client,
+        actor_id=auth.app_user_id,
+        action="store.subscription.checkout.create",
+        entity_type="user_subscriptions",
+        metadata={
+            "target_user_id": target_user_id,
+            "tier": request.tier,
+            "cadence": request.cadence,
+            "degree_plan_id": request.degree_plan_id,
+            "stripe_checkout_session_id": session.id,
+            "trial_days": trial_days,
+        },
+    )
+
+    return SubscriptionCheckoutResponse(
+        session_id=session.id,
+        checkout_url=session.url,
+        tier=request.tier,
+        cadence=request.cadence,
+    )
+
+
+@router.get("/subscriptions/me", response_model=Optional[SubscriptionResponse])
+def get_my_subscription(auth: AppAuthContext = Depends(get_app_auth_context)):
+    admin_client = _admin_client()
+
+    rows = (
+        admin_client.table("user_subscriptions")
+        .select(
+            "id,tier,plan_type,degree_plan_id,status,current_period_start,"
+            "current_period_end,trial_end,cancel_at_period_end,stripe_subscription_id"
+        )
+        .eq("user_id", auth.app_user_id)
+        .order("id", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+
+    if not rows:
+        return None
+
+    return rows[0]
+
+
+@router.post("/subscriptions/portal", response_model=PortalResponse)
+def create_billing_portal(
+    request: PortalRequest,
+    auth: AppAuthContext = Depends(get_app_auth_context),
+):
+    admin_client = _admin_client()
+    stripe_client = _stripe_client()
+
+    rows = (
+        admin_client.table("users")
+        .select("stripe_customer_id")
+        .eq("id", auth.app_user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+
+    customer_id = rows[0].get("stripe_customer_id") if rows else None
+    if not customer_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No Stripe customer on record. Start a subscription first.",
+        )
+
+    try:
+        session = stripe_client.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=request.return_url,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe billing portal session creation failed: {exc}",
+        ) from exc
+
+    write_audit_log(
+        admin_client,
+        actor_id=auth.app_user_id,
+        action="store.subscription.portal.create",
+        entity_type="users",
+    )
+
+    return PortalResponse(portal_url=session.url)

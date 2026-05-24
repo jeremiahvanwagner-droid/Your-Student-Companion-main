@@ -5,6 +5,7 @@ import {
   getGuestUserId,
   resolveAppUser,
 } from "@/components/store/storeApi";
+import { useUserSubscriptionContext } from "@/context/UserSubscriptionContext";
 import useUserPurchases from "@/hooks/useUserPurchases";
 
 const UserPurchasesContext = createContext(null);
@@ -95,6 +96,8 @@ export function UserPurchasesProvider({ children }) {
     };
   }, []);
 
+  const { subscription } = useUserSubscriptionContext();
+
   const {
     purchases,
     loading: purchasesLoading,
@@ -102,7 +105,7 @@ export function UserPurchasesProvider({ children }) {
     refresh,
     isPackUnlocked,
     unlockedPackIds,
-  } = useUserPurchases(userId);
+  } = useUserPurchases(userId, subscription);
 
   const unlockedPackNames = useMemo(() => {
     const names = purchases

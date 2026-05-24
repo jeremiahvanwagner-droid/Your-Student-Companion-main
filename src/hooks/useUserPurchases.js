@@ -21,7 +21,24 @@ function persistUnlockedPacks(packIds) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(packIds));
 }
 
-export default function useUserPurchases(userId) {
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
+function subscriptionUnlocks(subscription, pack) {
+  if (!subscription) return false;
+  if (!ACTIVE_SUBSCRIPTION_STATUSES.has(subscription.status)) return false;
+
+  if (subscription.tier === "all_access") {
+    return true;
+  }
+
+  if (subscription.tier === "degree_bundle" && pack && pack.degree_plan_id != null) {
+    return String(subscription.degree_plan_id) === String(pack.degree_plan_id);
+  }
+
+  return false;
+}
+
+export default function useUserPurchases(userId, subscription = null) {
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -62,8 +79,17 @@ export default function useUserPurchases(userId) {
   );
 
   const isPackUnlocked = useCallback(
-    (packId) => unlockedPackIds.has(String(packId)),
-    [unlockedPackIds]
+    (packOrId) => {
+      const pack = packOrId && typeof packOrId === "object" ? packOrId : null;
+      const packId = pack ? String(pack.id) : String(packOrId);
+
+      if (unlockedPackIds.has(packId)) {
+        return true;
+      }
+
+      return subscriptionUnlocks(subscription, pack);
+    },
+    [subscription, unlockedPackIds]
   );
 
   return {

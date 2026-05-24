@@ -28,7 +28,7 @@ export default function LevelSelector({ degreePlan, packs, loading, onBack, onSe
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {packs.map((pack) => {
-            const unlocked = isPackUnlocked(pack.id);
+            const unlocked = isPackUnlocked(pack);
             const levelName = pack?.academic_level?.name || "Level";
 
             return (

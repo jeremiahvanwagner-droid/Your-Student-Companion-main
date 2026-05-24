@@ -236,3 +236,89 @@ where up.lifetime_access = true and u.email is not null;
 ```
 
 (Filter further if there are sandbox/test rows you want to exclude — the `user_id` patterns `clerk_test_user_%` and `clerk_webhook_test_%` are seeded test rows that shouldn't receive email.)
+
+---
+
+# Step 4 — Subscription Checkout UI
+
+## 12) Manual QA — Subscription Flow (Test Mode)
+
+After deploying Step 4 (backend routes + Edge function gap-fill + `/app/subscribe` UI), exercise the flow with Stripe's `4242 4242 4242 4242` test card.
+
+### 12.1 Degree Bundle (Nursing, monthly)
+
+1. Sign in as a fresh test user with no existing subscription.
+2. Navigate to `/app/subscribe`. Both tier cards render. Monthly is selected by default.
+3. In the Degree Bundle card, pick **Nursing** from the dropdown.
+4. Click **Start 14-day free trial** → redirected to Stripe Checkout.
+5. Complete with the `4242` test card. Stripe redirects back to `/app/subscribe?checkout=success`.
+6. `<SubscriptionSuccess>` polls and lands on "You're in!" with the trial end date shown (~14 days out).
+7. Verify in Supabase:
+
+```sql
+select tier, plan_type, degree_plan_id, status, trial_end, stripe_subscription_id, stripe_customer_id
+from public.user_subscriptions
+order by id desc limit 5;
+```
+
+Expected: `tier='degree_bundle'`, `plan_type='degree_bundle_monthly'`, `status='trialing'`, `trial_end` ~14 days out, `stripe_subscription_id` populated.
+
+8. Confirm the user got a Stripe customer:
+
+```sql
+select id, email, stripe_customer_id from public.users where id = '<test_user_uuid>';
+```
+
+`stripe_customer_id` should be `cus_*`.
+
+### 12.2 Subscription-aware pack access
+
+After 12.1 completes:
+
+1. Visit `/app/store/nursing` and click into any Nursing pack.
+2. The pack should appear **Unlocked** without a separate purchase (subscription gating in `useUserPurchases`).
+3. Visit `/app/store/computer-science` — packs should remain **Locked** (Degree Bundle is per-degree).
+
+### 12.3 All-Access (annual)
+
+1. Sign in as a different fresh test user.
+2. Navigate to `/app/subscribe` → switch toggle to **Annual** → click **Start 14-day free trial** on the All-Access card.
+3. Complete checkout.
+4. Verify `tier='all_access'`, `plan_type='all_access_annual'`.
+5. Visit any pack in any degree — it should be unlocked.
+
+### 12.4 Billing Portal
+
+1. Return to `/app/subscribe` while subscribed.
+2. The `<CurrentSubscriptionBanner>` should show "You're on the …" with **Manage subscription** button.
+3. Click it → redirected to the Stripe Billing Portal.
+4. Click **Cancel subscription** in the portal. Stripe fires `customer.subscription.updated` with `cancel_at_period_end=true`.
+5. Return to `/app/subscribe` (Stripe redirects via `return_url`). Banner now shows "(set to cancel)" beside the renewal date.
+6. Verify in Supabase that `user_subscriptions.cancel_at_period_end = true`.
+
+### 12.5 Webhook events via Stripe CLI
+
+Trigger each event with `stripe trigger` against test mode and confirm the destination accepts it (200) and the DB state changes.
+
+```bash
+stripe trigger invoice.paid
+stripe trigger invoice.payment_failed
+stripe trigger customer.subscription.trial_will_end
+```
+
+Expected DB state changes:
+
+- `invoice.paid` → `user_subscriptions.current_period_*` refresh, `status='active'`.
+- `invoice.payment_failed` → `status='past_due'`.
+- `customer.subscription.trial_will_end` → no DB change, webhook returns 200 with `{updated: false, reason: "noted, trial ending"}` (notification path is Step 5).
+
+### 12.6 Trial enforcement
+
+1. Cancel the subscription in 12.1 fully (let the trial end after cancel, or `stripe trigger customer.subscription.deleted` against that specific sub).
+2. Re-subscribe the SAME user. The backend should **not** include `trial_period_days` in the new Stripe Checkout Session — verify the `subscription_data` payload in Stripe Dashboard event log.
+
+### 12.7 Lifetime-access user
+
+1. Sign in as a user with `lifetime_access=true` on at least one `user_purchases` row.
+2. Visit `/app/subscribe`. The "Your existing packs are yours forever" notice renders above the tier cards.
+3. The user can still subscribe (adds new degrees / voice mentor); flow doesn't block.

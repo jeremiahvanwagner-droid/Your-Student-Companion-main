@@ -1,4 +1,4 @@
-import { Bell, BookOpen, CalendarRange, CheckSquare, FileText, LayoutDashboard, MessageCircle, Settings, ShoppingBag, Sparkles, Timer } from "lucide-react";
+import { Bell, BookOpen, CalendarRange, CheckSquare, CreditCard, FileText, LayoutDashboard, MessageCircle, Settings, ShoppingBag, Sparkles, Timer } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { UserButton, useAuth } from "@clerk/clerk-react";
 
@@ -15,6 +15,7 @@ const MAIN_NAV = [
   { to: "/app/focus", label: "Focus", icon: Timer },
   { to: "/app/mentor", label: "Mentor", icon: MessageCircle },
   { to: "/app/store", label: "Store", icon: ShoppingBag },
+  { to: "/app/subscribe", label: "Subscribe", icon: CreditCard },
   { to: "/app/notes", label: "Notes", icon: FileText },
   { to: "/app/progress", label: "Progress", icon: Sparkles },
   { to: "/app/settings", label: "Settings", icon: Settings },

@@ -6,6 +6,7 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-react";
 import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
 import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
+import { UserSubscriptionProvider } from "@/context/UserSubscriptionContext";
 import { Toaster } from "@/components/ui/sonner";
 import {
   fetchMyStudentProfile,
@@ -23,6 +24,7 @@ import OnboardingFlow from "@/pages/OnboardingFlow";
 import SearchPage from "@/pages/SearchPage";
 import ShifterPage from "@/pages/ShifterPage";
 import StorePage from "@/pages/StorePage";
+import SubscribePage from "@/pages/SubscribePage";
 import StudyPlanner from "@/pages/StudyPlanner";
 import TaskManager from "@/pages/TaskManager";
 import UserSettings from "@/pages/UserSettings";
@@ -188,9 +190,11 @@ function AppAccessGuard({ children }) {
 
 function AppRoutes({ withAuthGuard }) {
   const shellWithPurchases = (
-    <UserPurchasesProvider>
-      <AppShell />
-    </UserPurchasesProvider>
+    <UserSubscriptionProvider>
+      <UserPurchasesProvider>
+        <AppShell />
+      </UserPurchasesProvider>
+    </UserSubscriptionProvider>
   );
 
   const appShellElement = withAuthGuard ? (
@@ -215,6 +219,7 @@ function AppRoutes({ withAuthGuard }) {
         <Route path="mentor" element={<MentorPage />} />
         <Route path="store" element={<StorePage />} />
         <Route path="store/:degreeSlug" element={<StorePage />} />
+        <Route path="subscribe" element={<SubscribePage />} />
         <Route path="notes" element={<NotesPad />} />
         <Route path="progress" element={<WeeklyReport />} />
         <Route path="settings" element={<UserSettings />} />

@@ -236,7 +236,7 @@ export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
       ) : (
         <PackDetail
           pack={selectedPack}
-          isUnlocked={isPackUnlocked(selectedPack.id)}
+          isUnlocked={isPackUnlocked(selectedPack)}
           onBack={resetToLevelSelection}
           onCheckout={handleCheckout}
           checkoutLoading={checkoutLoading || purchasesLoading}

@@ -242,6 +242,24 @@ def _handle_event(event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]
     }:
         return _upsert_subscription_from_stripe_subscription(event_data)
 
+    if event_type == "customer.subscription.trial_will_end":
+        # Acknowledge for now; Step 5 wires up notifications.
+        subscription_id = event_data.get("id")
+        return {
+            "updated": False,
+            "reason": "noted, trial ending",
+            "stripe_subscription_id": subscription_id,
+        }
+
+    if event_type == "invoice.paid":
+        subscription_id = event_data.get("subscription")
+        if not subscription_id:
+            return {"updated": False, "reason": "Invoice missing subscription id"}
+
+        stripe_client = _stripe_client()
+        subscription = stripe_client.Subscription.retrieve(subscription_id)
+        return _upsert_subscription_from_stripe_subscription(subscription)
+
     if event_type == "invoice.payment_failed":
         subscription_id = event_data.get("subscription")
         if not subscription_id:

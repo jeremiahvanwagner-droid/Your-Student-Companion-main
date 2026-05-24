@@ -252,6 +252,30 @@ async function handleStripeEvent(event: Stripe.Event): Promise<Record<string, un
     return upsertSubscriptionFromStripeSubscription(subscription);
   }
 
+  if (event.type === "customer.subscription.trial_will_end") {
+    const subscription = event.data.object as Stripe.Subscription;
+    return {
+      updated: false,
+      reason: "noted, trial ending",
+      stripe_subscription_id: subscription.id,
+    };
+  }
+
+  if (event.type === "invoice.paid") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const subscriptionId =
+      typeof invoice.subscription === "string"
+        ? invoice.subscription
+        : invoice.subscription?.id;
+
+    if (!subscriptionId) {
+      return { updated: false, reason: "Invoice missing subscription id" };
+    }
+
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return upsertSubscriptionFromStripeSubscription(subscription);
+  }
+
   if (event.type === "invoice.payment_failed") {
     const invoice = event.data.object as Stripe.Invoice;
     const subscriptionId =
