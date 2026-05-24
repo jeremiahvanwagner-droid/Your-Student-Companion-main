@@ -33,6 +33,11 @@ jest.mock("@/lib/onboarding", () => ({
   // these tests will catch it.
 }));
 
+const mockIdentifySentryUser = jest.fn();
+jest.mock("@/lib/sentry", () => ({
+  identifySentryUser: (...args) => mockIdentifySentryUser(...args),
+}));
+
 import AppAccessGuard from "@/components/AppAccessGuard";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -178,5 +183,35 @@ describe("AppAccessGuard", () => {
     expect(screen.queryByTestId("children")).not.toBeInTheDocument();
     // And the guard must NOT redirect anywhere on the "happy" rails
     expect(screen.queryByTestId("navigate")).not.toBeInTheDocument();
+  });
+
+  // ── Sentry identity wiring ────────────────────────────────────────────
+  // The guard is the single place that knows the user just resolved
+  // signed-in. It stamps the Clerk user id onto the Sentry scope so any
+  // subsequent error carries the id (not the email — scrubPII strips that).
+
+  it("identifies the Clerk user on Sentry once signed in with a userId", async () => {
+    mockUseAuth.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      userId: "user_clerk_abc123",
+    });
+    mockFetchMyStudentProfile.mockResolvedValue({
+      profile: { onboarding_completed: true },
+    });
+    renderGuard();
+
+    await waitFor(() => expect(screen.getByTestId("children")).toBeInTheDocument());
+    expect(mockIdentifySentryUser).toHaveBeenCalledWith("user_clerk_abc123");
+  });
+
+  it("does NOT identify the Sentry user when signed out", async () => {
+    mockUseAuth.mockReturnValue({ isLoaded: true, isSignedIn: false, userId: null });
+    renderGuard();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("navigate")).toHaveAttribute("data-to", "/")
+    );
+    expect(mockIdentifySentryUser).not.toHaveBeenCalled();
   });
 });

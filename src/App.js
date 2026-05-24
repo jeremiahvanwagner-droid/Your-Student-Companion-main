@@ -1,8 +1,10 @@
 import "@/App.css";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
+import * as Sentry from "@sentry/react";
 
 import AppAccessGuard from "@/components/AppAccessGuard";
+import { Button } from "@/components/ui/button";
 import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
 import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
@@ -133,6 +135,26 @@ function AppRoutes({ withAuthGuard }) {
   );
 }
 
+function GlobalErrorFallback({ resetError }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-center">
+      <div className="max-w-md space-y-3">
+        <h1 className="text-xl font-semibold text-foreground">Something went wrong</h1>
+        <p className="text-sm text-muted-foreground">
+          The page hit an unexpected error. Our team has been notified. You can
+          try again, or refresh the browser if it keeps happening.
+        </p>
+        <Button
+          onClick={resetError}
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          Try again
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function MissingAuthConfigScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6 text-center">
@@ -178,14 +200,18 @@ function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
-      <div className="min-h-screen bg-background text-foreground">
-        <BrowserRouter>
-          <AppRoutes withAuthGuard={true} />
-        </BrowserRouter>
-        <Toaster position="top-center" richColors />
-      </div>
-    </ClerkProvider>
+    <Sentry.ErrorBoundary
+      fallback={({ resetError }) => <GlobalErrorFallback resetError={resetError} />}
+    >
+      <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
+        <div className="min-h-screen bg-background text-foreground">
+          <BrowserRouter>
+            <AppRoutes withAuthGuard={true} />
+          </BrowserRouter>
+          <Toaster position="top-center" richColors />
+        </div>
+      </ClerkProvider>
+    </Sentry.ErrorBoundary>
   );
 }
 

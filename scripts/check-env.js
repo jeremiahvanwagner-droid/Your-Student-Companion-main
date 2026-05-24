@@ -79,6 +79,19 @@ const REQUIRED = [
   },
 ];
 
+// Soft-required vars: warn loudly when missing in production-style builds but
+// don't fail the build. Sentry SDK no-ops cleanly when the DSN is absent, so
+// the app still ships — just without error reporting. The warning makes it
+// hard to miss.
+const SOFT_REQUIRED = [
+  {
+    canonical: "REACT_APP_SENTRY_DSN",
+    aliases: [],
+    purpose:
+      "Sentry frontend DSN — without this, production errors won't reach Sentry. SDK is a clean no-op when missing.",
+  },
+];
+
 const missing = REQUIRED.filter((entry) => {
   const allNames = [entry.canonical, ...entry.aliases];
   return !allNames.some((name) => {
@@ -87,10 +100,40 @@ const missing = REQUIRED.filter((entry) => {
   });
 });
 
+const softMissing = SOFT_REQUIRED.filter((entry) => {
+  const allNames = [entry.canonical, ...entry.aliases];
+  return !allNames.some((name) => {
+    const value = process.env[name];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+});
+
+function emitSoftWarnings() {
+  if (softMissing.length === 0) {
+    return;
+  }
+  // Only loud on production-style builds — local `npm start` shouldn't nag.
+  const isProdLikeBuild =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL === "1" ||
+    process.env.CI === "true";
+  if (!isProdLikeBuild) {
+    return;
+  }
+  console.warn("");
+  console.warn("[check-env] WARNING — optional env vars missing (build continues):");
+  for (const entry of softMissing) {
+    console.warn(`  ! ${entry.canonical}`);
+    console.warn(`      ${entry.purpose}`);
+  }
+  console.warn("");
+}
+
 if (missing.length === 0) {
   console.log(
     `[check-env] OK — all ${REQUIRED.length} required env vars are set`
   );
+  emitSoftWarnings();
   process.exit(0);
 }
 

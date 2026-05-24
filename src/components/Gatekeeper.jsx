@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 
 import LandingPage from "@/pages/LandingPage";
 import { clearOnboardingLocalState } from "@/lib/onboarding";
+import { clearSentryUser } from "@/lib/sentry";
 
 const isClerkConfigured = Boolean(
   process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
@@ -20,6 +21,9 @@ function GatekeeperContent() {
   // test harness's module-reset trick.
   if (isLoaded && !isSignedIn) {
     clearOnboardingLocalState();
+    // Drop any prior user id from the Sentry scope so subsequent errors on
+    // this device aren't attributed to whoever was last signed in.
+    clearSentryUser();
   }
 
   if (!isLoaded) {

@@ -1,12 +1,45 @@
+import logging
 import os
+import sys
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pythonjsonlogger import jsonlogger
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from lib.rate_limit import limiter
+from lib.request_id import RequestIdMiddleware
+from lib.sentry_init import init_sentry
+
+
+def _configure_structured_logging() -> None:
+    """
+    Switch the root logger to JSON output so log shippers (Vercel function
+    logs, Render syslog, etc.) can ingest the records directly into a
+    search index. Idempotent — repeated calls replace the existing handler.
+    """
+    log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = jsonlogger.JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        rename_fields={"asctime": "ts", "levelname": "level"},
+    )
+    handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(log_level)
+
+
+# Initialize observability *before* the FastAPI app is constructed so the
+# Sentry integrations (FastApi + Starlette) hook in cleanly and the first
+# import-time exception is captured.
+_configure_structured_logging()
+init_sentry()
 
 
 def _allowed_origins() -> list[str]:
@@ -28,6 +61,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Per-request id middleware. Registered before CORS so the id is available
+# on preflight responses too — and so Sentry events captured anywhere
+# downstream already carry the request_id tag.
+app.add_middleware(RequestIdMiddleware)
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +73,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
+    expose_headers=["X-Request-ID"],
 )
 
 # Import and include routers

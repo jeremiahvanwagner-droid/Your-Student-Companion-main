@@ -8,6 +8,7 @@ import {
   resolveCurrentAppUser,
   setOnboardingComplete,
 } from "@/lib/onboarding";
+import { identifySentryUser } from "@/lib/sentry";
 
 /**
  * AppAccessGuard — the gate that sits between Clerk's signed-in state and the
@@ -57,7 +58,7 @@ export function ProfileLoadErrorScreen({ message, onRetry }) {
 }
 
 export default function AppAccessGuard({ children }) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
   const location = useLocation();
   const [onboardingState, setOnboardingState] = useState({
     loading: true,
@@ -67,6 +68,15 @@ export default function AppAccessGuard({ children }) {
   // Bumping this re-runs the load effect on demand from the error screen's
   // Retry button. Cleaner than re-checking pathname or unmounting.
   const [retryCounter, setRetryCounter] = useState(0);
+
+  // Stamp Sentry's user scope with the Clerk user id as soon as auth resolves
+  // signed-in. Errors raised later in the session will carry this id, scrubPII
+  // strips the email out before transmit.
+  useEffect(() => {
+    if (isLoaded && isSignedIn && userId) {
+      identifySentryUser(userId);
+    }
+  }, [isLoaded, isSignedIn, userId]);
 
   useEffect(() => {
     let isMounted = true;
