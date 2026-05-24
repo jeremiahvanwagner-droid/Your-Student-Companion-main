@@ -28,3 +28,5 @@ jq>=1.6.0
 typer>=0.9.0
 supabase>=2.7.4
 stripe>=11.6.0
+sentry-sdk[fastapi]>=2.18.0
+python-json-logger>=2.0.7

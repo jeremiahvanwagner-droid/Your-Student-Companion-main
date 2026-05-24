@@ -10,6 +10,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException
 from jwt import PyJWKClient
 
+from lib.sentry_init import identify_sentry_user
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 
 
@@ -139,9 +140,15 @@ def get_clerk_auth_context(
     claims = _verify_token(token)
 
     email = claims.get("email") or claims.get("email_address")
+    clerk_user_id = str(claims["sub"])
+
+    # Tag the Sentry scope as soon as token verification succeeds — covers
+    # any error raised in downstream dependencies (Supabase lookup, route
+    # handler, etc.) with the user id. scrub_pii_event drops the email.
+    identify_sentry_user(clerk_user_id)
 
     return ClerkAuthContext(
-        clerk_user_id=str(claims["sub"]),
+        clerk_user_id=clerk_user_id,
         email=str(email) if email else None,
         claims=claims,
     )
@@ -178,11 +185,18 @@ def get_app_auth_context(
             ),
         )
 
+    app_user_id = str(user_row["id"])
+
+    # Promote the Sentry user scope from the Clerk-only id (set in
+    # get_clerk_auth_context) to include the resolved app_user_id too.
+    # Useful for joining Sentry errors against application-side data.
+    identify_sentry_user(clerk_auth.clerk_user_id, app_user_id=app_user_id)
+
     return AppAuthContext(
         clerk_user_id=clerk_auth.clerk_user_id,
         email=clerk_auth.email,
         claims=clerk_auth.claims,
-        app_user_id=str(user_row["id"]),
+        app_user_id=app_user_id,
         role=str(user_row.get("role") or "student"),
     )
 

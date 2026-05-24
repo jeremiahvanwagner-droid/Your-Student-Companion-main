@@ -6,6 +6,7 @@ import os
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+import sentry_sdk
 import stripe
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -304,7 +305,21 @@ async def stripe_webhook(
         raise HTTPException(status_code=400, detail="Invalid webhook signature") from exc
 
     event_type = event.get("type")
+    event_id = event.get("id")
     event_data = (event.get("data") or {}).get("object") or {}
+
+    # Breadcrumb the Stripe event before handling so any error raised by
+    # _handle_event carries the upstream event id + type in Sentry. Lets
+    # us replay against Stripe by event id when debugging.
+    sentry_sdk.add_breadcrumb(
+        category="stripe",
+        message=event_type or "stripe.webhook",
+        level="info",
+        data={"event_id": event_id, "event_type": event_type},
+    )
+    sentry_sdk.set_tag("stripe_event_type", event_type or "unknown")
+    if event_id:
+        sentry_sdk.set_tag("stripe_event_id", event_id)
 
     try:
         result = _handle_event(event_type, event_data)

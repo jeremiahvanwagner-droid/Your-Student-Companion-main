@@ -6,6 +6,7 @@ jest.mock("@/pages/LandingPage", () => () => (
 ));
 
 const mockUseAuth = jest.fn();
+const mockClearSentryUser = jest.fn();
 
 function loadGatekeeper(envOverrides = {}) {
   jest.resetModules();
@@ -15,11 +16,18 @@ function loadGatekeeper(envOverrides = {}) {
     ClerkProvider: ({ children }) => <>{children}</>,
     UserButton: () => <div data-testid="user-button" />,
   }));
+  jest.doMock("@/lib/sentry", () => ({
+    clearSentryUser: (...args) => mockClearSentryUser(...args),
+  }));
   return require("@/components/Gatekeeper").default;
 }
 
 describe("Gatekeeper", () => {
   const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockClearSentryUser.mockClear();
+  });
 
   afterEach(() => {
     process.env = { ...originalEnv };
@@ -75,6 +83,25 @@ describe("Gatekeeper", () => {
     // Cleanup must wait until Clerk has finished loading; otherwise a slow
     // session restore would briefly wipe an authenticated user's state.
     expect(localStorage.getItem("ysc_onboarding_completed")).toBe("true");
+  });
+
+  // Sentry user-scope cleanup on sign-out. Without this, a subsequent error
+  // on the same device after a different user signs in would still carry the
+  // previous user's Clerk id on Sentry events.
+  it("clears the Sentry user scope on unauthenticated session resolve", () => {
+    mockUseAuth.mockReturnValue({ isLoaded: true, isSignedIn: false });
+    const Gatekeeper = loadGatekeeper({ REACT_APP_CLERK_PUBLISHABLE_KEY: "pk_test_fake" });
+    render(<MemoryRouter><Gatekeeper /></MemoryRouter>);
+
+    expect(mockClearSentryUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT clear the Sentry user scope while Clerk is still loading", () => {
+    mockUseAuth.mockReturnValue({ isLoaded: false, isSignedIn: false });
+    const Gatekeeper = loadGatekeeper({ REACT_APP_CLERK_PUBLISHABLE_KEY: "pk_test_fake" });
+    render(<MemoryRouter><Gatekeeper /></MemoryRouter>);
+
+    expect(mockClearSentryUser).not.toHaveBeenCalled();
   });
 
 });
