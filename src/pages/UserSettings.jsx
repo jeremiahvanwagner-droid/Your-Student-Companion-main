@@ -221,6 +221,9 @@ export default function UserSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // Raw loaded profile — kept so we can merge into nested study_preferences
+  // on save without clobbering fields the user didn't edit.
+  const [profileData, setProfileData] = useState(null);
   const [form, setForm] = useState({
     display_name: "",
     grade_level: "",
@@ -230,6 +233,7 @@ export default function UserSettings() {
     timezone: "America/New_York",
     weekly_goal_hours: 10,
     study_preferences: "",
+    semester_start_date: "",
   });
 
   // subjects state
@@ -258,6 +262,13 @@ export default function UserSettings() {
         ]);
         if (!mounted) return;
         const p = profileRes?.profile || {};
+        setProfileData(p);
+        const nestedPrefs =
+          p.study_preferences && typeof p.study_preferences === "object" ? p.study_preferences : {};
+        const semesterStart =
+          // Top-level column wins if present (future Phase 3 schema);
+          // else read from nested study_preferences (current Phase 2 location).
+          p.semester_start_date || nestedPrefs.semester_start_date || "";
         setForm({
           display_name: p.display_name || "",
           grade_level: p.grade_level || "",
@@ -272,6 +283,7 @@ export default function UserSettings() {
               : p.study_preferences
               ? JSON.stringify(p.study_preferences)
               : "",
+          semester_start_date: semesterStart,
         });
         setSubjects(subjectsRes?.subjects || []);
         setTasks(tasksRes?.tasks || []);
@@ -312,13 +324,41 @@ export default function UserSettings() {
         timezone: form.timezone || undefined,
         weekly_goal_hours: Number(form.weekly_goal_hours) || 10,
       };
+
+      // Build study_preferences as a merge of:
+      //   1. existing nested object from the loaded profile (so onboarding-set
+      //      fields like `subjects` survive if the user didn't edit them)
+      //   2. whatever the user typed into the textarea (parsed JSON or notes)
+      //   3. the dedicated semester_start_date form field
+      // The backend PUT does a full-replace on study_preferences, so we MUST
+      // include any fields we want to preserve.
+      const existingPrefs =
+        profileData?.study_preferences && typeof profileData.study_preferences === "object"
+          ? profileData.study_preferences
+          : {};
+      const studyPrefs = { ...existingPrefs };
+
       if (form.study_preferences.trim()) {
         try {
-          payload.study_preferences = JSON.parse(form.study_preferences);
+          const parsed = JSON.parse(form.study_preferences);
+          if (parsed && typeof parsed === "object") {
+            Object.assign(studyPrefs, parsed);
+          } else {
+            studyPrefs.notes = form.study_preferences.trim();
+          }
         } catch {
-          payload.study_preferences = { notes: form.study_preferences.trim() };
+          studyPrefs.notes = form.study_preferences.trim();
         }
       }
+
+      if (form.semester_start_date) {
+        studyPrefs.semester_start_date = form.semester_start_date;
+      }
+
+      if (Object.keys(studyPrefs).length > 0) {
+        payload.study_preferences = studyPrefs;
+      }
+
       await persistMyStudentProfile(payload);
       toast.success("Profile saved");
     } catch (err) {
@@ -529,6 +569,21 @@ export default function UserSettings() {
                 }
                 className="mt-1"
               />
+            </div>
+            <div>
+              <Label htmlFor="semester_start_date">Semester Start Date</Label>
+              <Input
+                id="semester_start_date"
+                type="date"
+                value={form.semester_start_date}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, semester_start_date: e.target.value }))
+                }
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Anchors your Truth-Line on the Dashboard.
+              </p>
             </div>
           </div>
 

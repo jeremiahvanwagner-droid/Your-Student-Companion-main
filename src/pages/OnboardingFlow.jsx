@@ -22,7 +22,17 @@ const STEP_TITLES = [
   "Weekly Goal",
   "Study Preferences",
   "Timezone",
+  "Semester Start",
 ];
+
+function todayIso() {
+  // YYYY-MM-DD in local time — matches <input type="date"> format
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 const DEFAULT_PROFILE = {
   grade_level: "",
@@ -30,6 +40,7 @@ const DEFAULT_PROFILE = {
   weekly_goal_hours: 10,
   study_preferences: "",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
+  semester_start_date: todayIso(),
 };
 
 function parseSubjects(rawSubjects) {
@@ -62,6 +73,11 @@ function mapRemoteProfileToForm(remoteProfile) {
         ? studyPreferences.preference_text
         : "";
 
+  const semesterStartFromPrefs =
+    typeof studyPreferences.semester_start_date === "string"
+      ? studyPreferences.semester_start_date
+      : "";
+
   return {
     grade_level: remoteProfile.grade_level || "",
     subjects,
@@ -71,6 +87,9 @@ function mapRemoteProfileToForm(remoteProfile) {
         : DEFAULT_PROFILE.weekly_goal_hours,
     study_preferences: studyPreferenceText,
     timezone: remoteProfile.timezone || DEFAULT_PROFILE.timezone,
+    semester_start_date:
+      // Top-level column wins if present (Phase 3); else nested JSON (Phase 2 location)
+      remoteProfile.semester_start_date || semesterStartFromPrefs || DEFAULT_PROFILE.semester_start_date,
   };
 }
 
@@ -151,6 +170,9 @@ export default function OnboardingFlow() {
     if (step === 4) {
       return Boolean(profile.timezone?.trim());
     }
+    if (step === 5) {
+      return Boolean(profile.semester_start_date?.trim());
+    }
     return true;
   }, [profile, step]);
 
@@ -188,6 +210,8 @@ export default function OnboardingFlow() {
       study_preferences: profile.study_preferences?.trim() || "",
       timezone: profile.timezone?.trim() || DEFAULT_PROFILE.timezone,
       weekly_goal_hours: Number(profile.weekly_goal_hours) || 10,
+      semester_start_date:
+        profile.semester_start_date?.trim() || DEFAULT_PROFILE.semester_start_date,
     };
 
     setIsSaving(true);
@@ -200,6 +224,9 @@ export default function OnboardingFlow() {
         study_preferences: {
           subjects: parseSubjects(normalizedProfile.subjects),
           notes: normalizedProfile.study_preferences || null,
+          // Phase 2: nested in study_preferences (no schema change required).
+          // Phase 3 will promote this to a top-level student_profiles.semester_start_date column.
+          semester_start_date: normalizedProfile.semester_start_date,
         },
         onboarding_completed: true,
       });
@@ -313,6 +340,24 @@ export default function OnboardingFlow() {
                 value={profile.timezone}
                 onChange={(event) => setProfile((prev) => ({ ...prev, timezone: event.target.value }))}
               />
+            </div>
+          )}
+
+          {step === 5 && (
+            <div className="space-y-2">
+              <Label htmlFor="semester-start-date">Semester start date</Label>
+              <Input
+                id="semester-start-date"
+                type="date"
+                value={profile.semester_start_date}
+                onChange={(event) =>
+                  setProfile((prev) => ({ ...prev, semester_start_date: event.target.value }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                This anchors your Truth-Line. Pick the first day of classes — defaults to today
+                if you're not sure.
+              </p>
             </div>
           )}
 

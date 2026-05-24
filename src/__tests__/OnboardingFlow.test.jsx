@@ -47,7 +47,7 @@ describe("OnboardingFlow", () => {
 
   it("renders step 1 with Grade Level input", () => {
     renderOnboarding();
-    expect(screen.getByText("Step 1 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Step 1 of 6")).toBeInTheDocument();
     expect(screen.getByLabelText(/grade level/i)).toBeInTheDocument();
   });
 
@@ -63,7 +63,7 @@ describe("OnboardingFlow", () => {
     await user.type(screen.getByLabelText(/grade level/i), "10th Grade");
     await user.click(screen.getByRole("button", { name: /next/i }));
 
-    expect(screen.getByText("Step 2 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Step 2 of 6")).toBeInTheDocument();
     expect(screen.getByLabelText(/main subjects/i)).toBeInTheDocument();
   });
 
@@ -73,10 +73,10 @@ describe("OnboardingFlow", () => {
 
     await user.type(screen.getByLabelText(/grade level/i), "Freshman");
     await user.click(screen.getByRole("button", { name: /next/i }));
-    expect(screen.getByText("Step 2 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Step 2 of 6")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /back/i }));
-    expect(screen.getByText("Step 1 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Step 1 of 6")).toBeInTheDocument();
   });
 
   it("completes full onboarding flow and navigates to dashboard", async () => {
@@ -97,12 +97,21 @@ describe("OnboardingFlow", () => {
     // Step 4 – study preferences (optional; just advance)
     await user.click(screen.getByRole("button", { name: /next/i }));
 
-    // Step 5 – timezone (pre-filled); click Finish
-    expect(screen.getByText("Step 5 of 5")).toBeInTheDocument();
+    // Step 5 – timezone (pre-filled); advance
+    expect(screen.getByText("Step 5 of 6")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 6 – semester start date (pre-filled with today); click Finish
+    expect(screen.getByText("Step 6 of 6")).toBeInTheDocument();
+    expect(screen.getByLabelText(/semester start date/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /finish/i }));
 
     expect(persistMyStudentProfile).toHaveBeenCalledTimes(1);
     expect(setOnboardingComplete).toHaveBeenCalledWith(true);
     expect(mockNavigate).toHaveBeenCalledWith("/app/dashboard", { replace: true });
+
+    // Verify semester_start_date made it into the persisted payload
+    const sent = persistMyStudentProfile.mock.calls[0][0];
+    expect(sent.study_preferences.semester_start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

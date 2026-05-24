@@ -7,10 +7,10 @@ import Gatekeeper from "@/components/Gatekeeper";
 import AppShell from "@/components/layout/AppShell";
 import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
 import { UserSubscriptionProvider } from "@/context/UserSubscriptionContext";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import {
   fetchMyStudentProfile,
-  isOnboardingComplete,
   resolveCurrentAppUser,
   setOnboardingComplete,
 } from "@/lib/onboarding";
@@ -20,6 +20,7 @@ import HomePage from "@/pages/HomePage";
 import LandingPage from "@/pages/LandingPage";
 import MentorPage from "@/pages/MentorPage";
 import NotesPad from "@/pages/NotesPad";
+import NotFoundPage from "@/pages/NotFoundPage";
 import OnboardingFlow from "@/pages/OnboardingFlow";
 import SearchPage from "@/pages/SearchPage";
 import ShifterPage from "@/pages/ShifterPage";
@@ -104,13 +105,34 @@ function LoadingScreen() {
   );
 }
 
+function ProfileLoadErrorScreen({ message, onRetry }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="max-w-md space-y-3 text-center">
+        <h1 className="text-xl font-semibold text-foreground">We couldn't load your profile</h1>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <Button
+          onClick={onRetry}
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          Try again
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AppAccessGuard({ children }) {
   const { isLoaded, isSignedIn } = useAuth();
   const location = useLocation();
   const [onboardingState, setOnboardingState] = useState({
     loading: true,
     completed: false,
+    error: null,
   });
+  // Bumping this re-runs the load effect on demand from the error screen's
+  // Retry button. Cleaner than re-checking pathname or unmounting.
+  const [retryCounter, setRetryCounter] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -126,6 +148,7 @@ function AppAccessGuard({ children }) {
         setOnboardingState({
           loading: false,
           completed: false,
+          error: null,
         });
       }
       return () => {
@@ -134,11 +157,14 @@ function AppAccessGuard({ children }) {
     }
 
     const loadOnboardingStatus = async () => {
-      setOnboardingState((prev) => ({ ...prev, loading: true }));
+      setOnboardingState((prev) => ({ ...prev, loading: true, error: null }));
 
       try {
         await resolveCurrentAppUser();
         const payload = await fetchMyStudentProfile();
+        // Server's onboarding_completed is the source of truth. A missing
+        // profile (payload.profile == null) correctly resolves to false here,
+        // which routes the user to /app/onboarding below.
         const completed = Boolean(payload?.profile?.onboarding_completed);
 
         if (!isMounted) {
@@ -146,15 +172,20 @@ function AppAccessGuard({ children }) {
         }
 
         setOnboardingComplete(completed);
-        setOnboardingState({ loading: false, completed });
-      } catch {
+        setOnboardingState({ loading: false, completed, error: null });
+      } catch (err) {
         if (!isMounted) {
           return;
         }
 
+        // IMPORTANT: do NOT fall back to localStorage's isOnboardingComplete()
+        // here. That fallback let stale state from a previous user/session
+        // pin a brand-new sign-in past onboarding. Surface a retry screen
+        // instead — the server is the source of truth.
         setOnboardingState({
           loading: false,
-          completed: isOnboardingComplete(),
+          completed: false,
+          error: err?.message || "Could not load your profile.",
         });
       }
     };
@@ -164,7 +195,7 @@ function AppAccessGuard({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [isLoaded, isSignedIn, location.pathname]);
+  }, [isLoaded, isSignedIn, location.pathname, retryCounter]);
 
   if (!isLoaded || onboardingState.loading) {
     return <LoadingScreen />;
@@ -172,6 +203,15 @@ function AppAccessGuard({ children }) {
 
   if (!isSignedIn) {
     return <Navigate to="/" replace />;
+  }
+
+  if (onboardingState.error) {
+    return (
+      <ProfileLoadErrorScreen
+        message={onboardingState.error}
+        onRetry={() => setRetryCounter((n) => n + 1)}
+      />
+    );
   }
 
   const onboardingDone = onboardingState.completed;
@@ -228,7 +268,7 @@ function AppRoutes({ withAuthGuard }) {
         <Route path="shifter" element={<ShifterPage />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

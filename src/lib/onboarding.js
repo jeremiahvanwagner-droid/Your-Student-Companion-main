@@ -85,6 +85,20 @@ export function setOnboardingComplete(completed) {
   localStorage.setItem(ONBOARDING_COMPLETED_KEY, completed ? "true" : "false");
 }
 
+/**
+ * Remove both onboarding localStorage keys. Called on sign-out (via Gatekeeper
+ * when it sees an unauthenticated session) so that a different user signing in
+ * on the same device doesn't inherit the previous user's onboarding state.
+ */
+export function clearOnboardingLocalState() {
+  if (!ensureBrowserStorage()) {
+    return;
+  }
+
+  localStorage.removeItem(ONBOARDING_COMPLETED_KEY);
+  localStorage.removeItem(ONBOARDING_PROFILE_KEY);
+}
+
 export async function resolveCurrentAppUser() {
   const headers = await authHeaders();
 

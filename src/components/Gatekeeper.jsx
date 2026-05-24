@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { Navigate } from "react-router-dom";
 
 import LandingPage from "@/pages/LandingPage";
+import { clearOnboardingLocalState } from "@/lib/onboarding";
 
 const isClerkConfigured = Boolean(
   process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
@@ -9,6 +10,17 @@ const isClerkConfigured = Boolean(
 
 function GatekeeperContent() {
   const { isSignedIn, isLoaded } = useAuth();
+
+  // Whenever the Gatekeeper resolves an unauthenticated session, wipe any
+  // onboarding state lingering in localStorage from a previous user on the
+  // same device. Without this, signing in as a different account would
+  // inherit the prior user's `ysc_onboarding_completed=true` and skip the
+  // wizard. Inlined here (not in useEffect) on purpose: removeItem is
+  // idempotent, and useEffect creates a React-instance issue with the
+  // test harness's module-reset trick.
+  if (isLoaded && !isSignedIn) {
+    clearOnboardingLocalState();
+  }
 
   if (!isLoaded) {
     return (
