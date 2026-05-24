@@ -61,20 +61,38 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Per-request id middleware. Registered before CORS so the id is available
-# on preflight responses too — and so Sentry events captured anywhere
-# downstream already carry the request_id tag.
-app.add_middleware(RequestIdMiddleware)
-
-# CORS configuration
+# CORS configuration. Registered BEFORE RequestIdMiddleware so that — under
+# Starlette's reverse-stack semantics (last add_middleware runs first) —
+# RequestIdMiddleware ends up outermost and runs on every request,
+# including the CORS-handled OPTIONS preflight. Without that ordering CORS
+# would short-circuit preflight before request_id is generated, leaving
+# preflight responses without an X-Request-ID header and Sentry events
+# without the request_id tag.
+#
+# X-Request-ID must be in allow_headers so cross-origin browser clients
+# can propagate their own request id; without it CORS preflight rejects
+# the header and the backend always generates a new id, breaking
+# end-to-end correlation.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "X-Request-ID",
+    ],
     expose_headers=["X-Request-ID"],
 )
+
+# Per-request id middleware. Added LAST so the Starlette stack puts it
+# outermost — runs first on every request (including CORS preflight) and
+# wraps every other middleware + handler in the request_id Sentry scope.
+app.add_middleware(RequestIdMiddleware)
 
 # Import and include routers
 from routes.ai_mentor import router as ai_mentor_router
