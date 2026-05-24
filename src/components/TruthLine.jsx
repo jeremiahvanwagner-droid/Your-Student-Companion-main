@@ -1,4 +1,5 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,18 +10,33 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const TOTAL_WEEKS = 16;
-const DANGER_WEEKS = [8, 15]; // Midterms and Finals
-const CURRENT_WEEK = 6; // Simulated current week - can be made dynamic
+const DEFAULT_TOTAL_WEEKS = 16;
 
-const TruthLine = () => {
+/**
+ * Semester progress timeline.
+ *
+ * @param {number|null} currentWeek - 1-indexed current week of the semester.
+ *   Pass null when the user has not yet set a semester start date — the
+ *   component will render an empty-state CTA instead of a fake "Week 6".
+ * @param {number} totalWeeks - Defaults to 16. Midterms render at the midpoint,
+ *   finals at the last week.
+ */
+const TruthLine = ({ currentWeek = null, totalWeeks = DEFAULT_TOTAL_WEEKS }) => {
   const scrollContainerRef = useRef(null);
+
+  const dangerWeeks = useMemo(
+    () => [Math.floor(totalWeeks / 2), totalWeeks - 1],
+    [totalWeeks]
+  );
+  const midtermsWeek = dangerWeeks[0];
+  const finalsWeek = dangerWeeks[1];
 
   // Auto-scroll to current week on mount
   useEffect(() => {
+    if (currentWeek == null) return;
     if (scrollContainerRef.current) {
       const currentWeekElement = scrollContainerRef.current.querySelector(
-        `[data-week="${CURRENT_WEEK}"]`
+        `[data-week="${currentWeek}"]`
       );
       if (currentWeekElement) {
         currentWeekElement.scrollIntoView({
@@ -30,7 +46,33 @@ const TruthLine = () => {
         });
       }
     }
-  }, []);
+  }, [currentWeek]);
+
+  // Empty state: no semester start date on file
+  if (currentWeek == null) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-accent" />
+            <span className="text-sm font-medium text-foreground">Truth-Line</span>
+            <Badge variant="outline" className="text-xs border-border/50 text-muted-foreground">
+              Semester Progress
+            </Badge>
+          </div>
+        </div>
+        <div className="rounded-lg border border-dashed border-border/50 bg-card/30 p-4 text-center">
+          <p className="text-sm text-foreground">Set your semester start date to track weekly progress.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Once set, you'll see your current week, midterms, and finals at a glance.
+          </p>
+          <Button asChild variant="outline" size="sm" className="mt-3 border-border/50">
+            <Link to="/app/settings">Open Settings</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const scroll = (direction) => {
     if (scrollContainerRef.current) {
@@ -43,16 +85,16 @@ const TruthLine = () => {
   };
 
   const getWeekStatus = (week) => {
-    if (DANGER_WEEKS.includes(week)) return "danger";
-    if (week === CURRENT_WEEK) return "current";
-    if (week < CURRENT_WEEK) return "completed";
+    if (dangerWeeks.includes(week)) return "danger";
+    if (week === currentWeek) return "current";
+    if (week < currentWeek) return "completed";
     return "upcoming";
   };
 
   const getWeekLabel = (week) => {
-    if (week === 8) return "Midterms";
-    if (week === 15) return "Finals";
-    if (week === CURRENT_WEEK) return "Current";
+    if (week === midtermsWeek) return "Midterms";
+    if (week === finalsWeek) return "Finals";
+    if (week === currentWeek) return "Current";
     return `Week ${week}`;
   };
 
@@ -97,7 +139,7 @@ const TruthLine = () => {
         {/* Progress bar fill */}
         <div 
           className="absolute top-1/2 left-0 h-1 bg-accent/50 -translate-y-1/2 rounded-full transition-all duration-500"
-          style={{ width: `${((CURRENT_WEEK - 1) / (TOTAL_WEEKS - 1)) * 100}%` }}
+          style={{ width: `${((currentWeek - 1) / (totalWeeks - 1)) * 100}%` }}
         />
 
         {/* Scrollable week markers */}
@@ -107,7 +149,7 @@ const TruthLine = () => {
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <TooltipProvider delayDuration={200}>
-            {Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1).map((week) => {
+            {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((week) => {
               const status = getWeekStatus(week);
               const isDanger = status === "danger";
               const isCurrent = status === "current";
@@ -164,7 +206,7 @@ const TruthLine = () => {
                             : "text-muted-foreground/70"
                         }
                       `}>
-                        {isDanger ? (week === 8 ? "Mid" : "Final") : "Week"}
+                        {isDanger ? (week === midtermsWeek ? "Mid" : "Final") : "Week"}
                       </span>
 
                       {/* Current week indicator dot */}
@@ -186,7 +228,7 @@ const TruthLine = () => {
                       <p className="font-medium">{getWeekLabel(week)}</p>
                       {isDanger && (
                         <p className="text-xs opacity-80">
-                          {week === 8 ? "Midterm Exams" : "Final Exams"} - Danger Zone!
+                          {week === midtermsWeek ? "Midterm Exams" : "Final Exams"} - Danger Zone!
                         </p>
                       )}
                       {isCurrent && (

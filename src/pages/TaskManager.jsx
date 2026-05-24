@@ -10,6 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,6 +113,7 @@ export default function TaskManager() {
       setTasks(taskRes.tasks || []);
       setSubjects(subjectRes.subjects || []);
     } catch (err) {
+      toast.error("Could not load tasks", { description: err.message });
       setError(err.message);
     } finally {
       setLoading(false);
@@ -138,10 +140,12 @@ export default function TaskManager() {
       if (form.estimated_minutes) payload.estimated_minutes = Number(form.estimated_minutes);
 
       await createTask(payload);
+      toast.success("Task created");
       setShowCreate(false);
       setForm(EMPTY_FORM);
       await loadData();
     } catch (err) {
+      toast.error("Could not create task", { description: err.message });
       setError(err.message);
     } finally {
       setSaving(false);
@@ -159,10 +163,12 @@ export default function TaskManager() {
       if (form.estimated_minutes) payload.estimated_minutes = Number(form.estimated_minutes);
 
       await updateTask(editTask.id, payload);
+      toast.success("Task updated");
       setEditTask(null);
       setForm(EMPTY_FORM);
       await loadData();
     } catch (err) {
+      toast.error("Could not update task", { description: err.message });
       setError(err.message);
     } finally {
       setSaving(false);
@@ -176,6 +182,7 @@ export default function TaskManager() {
       await patchTaskStatus(task.id, next);
       await loadData();
     } catch (err) {
+      toast.error("Could not update task status", { description: err.message });
       setError(err.message);
     }
   };
@@ -185,9 +192,11 @@ export default function TaskManager() {
     setSaving(true);
     try {
       await deleteTask(deleteTarget.id);
+      toast.success("Task deleted");
       setDeleteTarget(null);
       await loadData();
     } catch (err) {
+      toast.error("Could not delete task", { description: err.message });
       setError(err.message);
     } finally {
       setSaving(false);
@@ -195,9 +204,14 @@ export default function TaskManager() {
   };
 
   const handleCreateSubject = async (name, color) => {
-    await createSubject({ name, color });
-    const res = await fetchSubjects();
-    setSubjects(res.subjects || []);
+    try {
+      await createSubject({ name, color });
+      const res = await fetchSubjects();
+      setSubjects(res.subjects || []);
+    } catch (err) {
+      toast.error("Could not create subject", { description: err.message });
+      throw err;
+    }
   };
 
   const openEdit = (task) => {

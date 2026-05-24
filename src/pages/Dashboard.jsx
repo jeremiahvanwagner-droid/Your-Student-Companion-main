@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
@@ -21,6 +21,24 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
 import { fetchTasks, fetchTaskStats } from "@/lib/tasksApi";
+import { fetchMyStudentProfile } from "@/lib/onboarding";
+
+const SEMESTER_WEEKS = 16;
+
+/**
+ * Compute the 1-indexed current week of the semester from a start date.
+ * Returns null when no start date is provided or the start is in the future.
+ * Clamps to [1, SEMESTER_WEEKS] so users mid-semester don't fall off the timeline.
+ */
+function computeCurrentWeek(semesterStartIso) {
+  if (!semesterStartIso) return null;
+  const start = new Date(semesterStartIso);
+  if (Number.isNaN(start.getTime())) return null;
+  const msPerWeek = 7 * 86_400_000;
+  const weeksSinceStart = Math.floor((Date.now() - start.getTime()) / msPerWeek);
+  if (weeksSinceStart < 0) return null;
+  return Math.max(1, Math.min(weeksSinceStart + 1, SEMESTER_WEEKS));
+}
 
 const QUICK_ACTIONS = [
   { to: "/app/tasks", label: "Add Task", icon: ListTodo },
@@ -31,6 +49,7 @@ const QUICK_ACTIONS = [
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [todayTasks, setTodayTasks] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -38,12 +57,16 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [statsRes, tasksRes] = await Promise.all([
+      // Profile fetch is best-effort; if it fails we still render the dashboard
+      // with the TruthLine in its empty state.
+      const [statsRes, tasksRes, profileRes] = await Promise.all([
         fetchTaskStats(),
         fetchTasks({ status: "not_started,in_progress", limit: 5 }),
+        fetchMyStudentProfile().catch(() => null),
       ]);
       setStats(statsRes);
       setTodayTasks(tasksRes.tasks || []);
+      setProfile(profileRes?.profile || null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -54,6 +77,17 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  // Phase 1: read semester_start_date out of study_preferences (where onboarding
+  // currently stores ad-hoc fields). Phase 2 will promote this to a top-level
+  // column on student_profiles and add an onboarding step to capture it.
+  const currentWeek = useMemo(() => {
+    const semesterStart =
+      profile?.semester_start_date ||
+      profile?.study_preferences?.semester_start_date ||
+      null;
+    return computeCurrentWeek(semesterStart);
+  }, [profile]);
 
   const SNAPSHOT_CARDS = stats
     ? [
@@ -88,7 +122,7 @@ export default function Dashboard() {
 
       <Card className="border-border/40 bg-card/40">
         <CardContent className="py-4">
-          <TruthLine />
+          <TruthLine currentWeek={currentWeek} totalWeeks={SEMESTER_WEEKS} />
         </CardContent>
       </Card>
 

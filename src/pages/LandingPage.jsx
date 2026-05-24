@@ -50,19 +50,22 @@ const useSafeAuth = () => {
   }
 };
 
-// Wrapper components that only render Clerk components when configured
+// Wrapper components that only render Clerk components when configured.
+// NOTE: these MUST delegate to the imported SignInButton/SignUpButton — recursing
+// back into Safe* (the original bug) caused an infinite render loop and crashed
+// every CTA on the landing page.
 const SafeSignInButton = ({ children, ...props }) => {
   if (!isClerkConfigured) {
-    return <Link to="/app">{children}</Link>;
+    return <Link to="/">{children}</Link>;
   }
-  return <SafeSignInButton {...props}>{children}</SafeSignInButton>;
+  return <SignInButton {...props}>{children}</SignInButton>;
 };
 
 const SafeSignUpButton = ({ children, ...props }) => {
   if (!isClerkConfigured) {
-    return <Link to="/app">{children}</Link>;
+    return <Link to="/">{children}</Link>;
   }
-  return <SafeSignUpButton {...props}>{children}</SafeSignUpButton>;
+  return <SignUpButton {...props}>{children}</SignUpButton>;
 };
 
 // SEO Meta component with ASO optimization

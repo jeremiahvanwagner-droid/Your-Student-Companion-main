@@ -208,10 +208,9 @@ function AppRoutes({ withAuthGuard }) {
       <Route path="/" element={<Gatekeeper />} />
       <Route path="/landing" element={<LandingPage />} />
 
-      <Route path="/app/legacy" element={<HomePage />} />
-
       <Route path="/app" element={appShellElement}>
         <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="legacy" element={<HomePage />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="tasks" element={<TaskManager />} />
         <Route path="planner" element={<StudyPlanner />} />
@@ -234,14 +233,44 @@ function AppRoutes({ withAuthGuard }) {
   );
 }
 
+function MissingAuthConfigScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-center">
+      <div className="max-w-md space-y-2">
+        <h1 className="text-xl font-semibold text-foreground">Sign-in is temporarily unavailable</h1>
+        <p className="text-sm text-muted-foreground">
+          We can't reach the authentication service right now. Please try again in a few minutes
+          or contact support if the problem persists.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   if (!clerkPubKey) {
     console.warn("[Clerk] No publishable key found. Set REACT_APP_CLERK_PUBLISHABLE_KEY in .env.local");
 
+    // Production: NEVER render the app unguarded. Hard-fail with a user-facing message.
+    // The old behavior (running with withAuthGuard={false}) silently exposed every /app/*
+    // route to anonymous users and is the root cause of the "auth is broken" walkthrough finding.
+    if (process.env.NODE_ENV === "production") {
+      return (
+        <div className="min-h-screen bg-background text-foreground">
+          <MissingAuthConfigScreen />
+          <Toaster position="top-center" richColors />
+        </div>
+      );
+    }
+
+    // Development convenience: render the landing page for marketing work without Clerk,
+    // but refuse to render any /app/* route — they would also be unguarded.
     return (
       <div className="min-h-screen bg-background text-foreground">
         <BrowserRouter>
-          <AppRoutes withAuthGuard={false} />
+          <Routes>
+            <Route path="*" element={<LandingPage />} />
+          </Routes>
         </BrowserRouter>
         <Toaster position="top-center" richColors />
       </div>
