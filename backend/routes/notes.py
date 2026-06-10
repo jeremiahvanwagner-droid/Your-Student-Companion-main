@@ -90,19 +90,32 @@ def _sanitize_search_term(term: str) -> str:
 NOTE_COLUMNS = "id,user_id,subject_id,title,content,tags,is_archived,created_at,updated_at"
 CARD_COLUMNS = (
     "id,user_id,note_id,front_text,back_text,difficulty,"
-    "next_review_at,review_count,created_at"
+    "next_review_at,review_count,ease_factor,interval_days,created_at"
 )
 
-# Lightweight spaced-repetition intervals per rating. Intervals grow with
-# review_count so cards a student keeps getting right back off over time.
-# Full SM-2 lands with the Step 9 review engine; this keeps the data model
-# (difficulty / next_review_at / review_count) forward-compatible with it.
-REVIEW_BASE_INTERVALS = {
-    "again": timedelta(minutes=10),
-    "hard": timedelta(days=1),
-    "good": timedelta(days=3),
-    "easy": timedelta(days=7),
-}
+# SM-2 (SuperMemo-2) scheduling. Ratings map onto SM-2 quality scores:
+# again=2 (lapse), hard=3, good=4, easy=5. Quality < 3 resets the interval
+# and re-queues the card in 10 minutes; otherwise intervals run 1 day,
+# 6 days, then interval*ease_factor. Ease factor never drops below 1.3.
+SM2_QUALITY = {"again": 2, "hard": 3, "good": 4, "easy": 5}
+SM2_MIN_EASE = 1.3
+SM2_LAPSE_REQUEUE = timedelta(minutes=10)
+
+
+def apply_sm2(rating: str, ease_factor: float, interval_days: int) -> tuple[float, int]:
+    """Return the next (ease_factor, interval_days) per SM-2."""
+    quality = SM2_QUALITY[rating]
+
+    next_ease = ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+    next_ease = max(round(next_ease, 2), SM2_MIN_EASE)
+
+    if quality < 3:
+        return next_ease, 0
+    if interval_days <= 0:
+        return next_ease, 1
+    if interval_days == 1:
+        return next_ease, 6
+    return next_ease, max(1, round(interval_days * next_ease))
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +215,7 @@ async def review_card(
 
     rows = (
         admin.table("review_cards")
-        .select("id,user_id,difficulty,review_count")
+        .select("id,user_id,difficulty,review_count,ease_factor,interval_days")
         .eq("id", card_uuid)
         .limit(1)
         .execute()
@@ -213,17 +226,21 @@ async def review_card(
 
     review_count = int(existing.get("review_count") or 0)
     difficulty = int(existing.get("difficulty") or 3)
+    ease_factor = float(existing.get("ease_factor") or 2.5)
+    interval_days = int(existing.get("interval_days") or 0)
 
+    # difficulty stays a 1-5 UI hint alongside the SM-2 state
     if body.rating == "again":
         difficulty = min(difficulty + 1, 5)
     elif body.rating == "easy":
         difficulty = max(difficulty - 1, 1)
 
-    interval = REVIEW_BASE_INTERVALS[body.rating]
-    if body.rating in ("good", "easy"):
-        interval = interval * max(1, review_count)
+    next_ease, next_interval = apply_sm2(body.rating, ease_factor, interval_days)
 
-    next_review_at = datetime.now(timezone.utc) + interval
+    if next_interval == 0:
+        next_review_at = datetime.now(timezone.utc) + SM2_LAPSE_REQUEUE
+    else:
+        next_review_at = datetime.now(timezone.utc) + timedelta(days=next_interval)
 
     result = (
         admin.table("review_cards")
@@ -231,6 +248,8 @@ async def review_card(
             {
                 "difficulty": difficulty,
                 "review_count": review_count + 1,
+                "ease_factor": next_ease,
+                "interval_days": next_interval,
                 "next_review_at": next_review_at.isoformat(),
             }
         )

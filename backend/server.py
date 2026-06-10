@@ -88,6 +88,7 @@ from routes.exams import router as exams_router
 from routes.notes import router as notes_router
 from routes.planner import router as planner_router
 from routes.reports import router as reports_router
+from routes.reminders import router as reminders_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
@@ -100,6 +101,7 @@ app.include_router(exams_router)
 app.include_router(notes_router)
 app.include_router(planner_router)
 app.include_router(reports_router)
+app.include_router(reminders_router)
 
 
 # ============================================
@@ -154,6 +156,8 @@ async def root():
             "planner_suggest": "/api/planner/suggest",
             "weekly_report_current": "/api/reports/weekly/current",
             "weekly_report_history": "/api/reports/weekly/history",
+            "reminders": "/api/reminders",
+            "reminders_sync": "/api/reminders/sync",
             "health": "/health",
         },
     }

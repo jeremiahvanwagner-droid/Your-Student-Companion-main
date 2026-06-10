@@ -212,12 +212,15 @@ class TestReviewCards:
             )
         assert resp.status_code == 403
 
-    def test_review_good_scales_interval_with_review_count(self, client: TestClient):
+    def test_review_good_first_pass_schedules_one_day(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
         import routes.notes as notes_routes
 
         rows = [
-            {"id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 3, "review_count": 2}
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 3,
+                "review_count": 0, "ease_factor": 2.5, "interval_days": 0,
+            }
         ]
         admin, mocks = _mock_admin_tables({"review_cards": rows})
         before = datetime.now(timezone.utc)
@@ -226,19 +229,66 @@ class TestReviewCards:
 
         assert resp.status_code == 200
         updates = mocks["review_cards"].update.call_args[0][0]
-        assert updates["review_count"] == 3
+        assert updates["review_count"] == 1
         assert updates["difficulty"] == 3
+        # SM-2: q=4 leaves ease at 2.5; first successful pass → 1 day
+        assert updates["ease_factor"] == 2.5
+        assert updates["interval_days"] == 1
         next_review = datetime.fromisoformat(updates["next_review_at"])
-        # good with review_count=2 → 3 days * 2 = 6 days out
-        assert next_review - before >= timedelta(days=5, hours=23)
-        assert next_review - before <= timedelta(days=6, hours=1)
+        assert timedelta(hours=23) <= next_review - before <= timedelta(hours=25)
 
-    def test_review_again_bumps_difficulty(self, client: TestClient):
+    def test_review_good_mature_card_multiplies_by_ease(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
         import routes.notes as notes_routes
 
         rows = [
-            {"id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 5, "review_count": 0}
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 3,
+                "review_count": 3, "ease_factor": 2.5, "interval_days": 6,
+            }
+        ]
+        admin, mocks = _mock_admin_tables({"review_cards": rows})
+        with patch.object(notes_routes, "_admin_client", return_value=admin):
+            resp = client.post(f"/api/notes/cards/{CARD_ID}/review", json={"rating": "good"})
+
+        assert resp.status_code == 200
+        updates = mocks["review_cards"].update.call_args[0][0]
+        assert updates["interval_days"] == 15  # round(6 * 2.5)
+
+    def test_review_again_resets_interval_and_lowers_ease(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.notes as notes_routes
+
+        rows = [
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 5,
+                "review_count": 4, "ease_factor": 2.5, "interval_days": 15,
+            }
+        ]
+        admin, mocks = _mock_admin_tables({"review_cards": rows})
+        before = datetime.now(timezone.utc)
+        with patch.object(notes_routes, "_admin_client", return_value=admin):
+            resp = client.post(f"/api/notes/cards/{CARD_ID}/review", json={"rating": "again"})
+
+        assert resp.status_code == 200
+        updates = mocks["review_cards"].update.call_args[0][0]
+        assert updates["difficulty"] == 5  # capped at 5
+        assert updates["review_count"] == 5
+        assert updates["interval_days"] == 0
+        assert updates["ease_factor"] == 2.18  # 2.5 + (0.1 - 3*(0.08 + 3*0.02))
+        # Lapsed cards re-queue ~10 minutes out
+        next_review = datetime.fromisoformat(updates["next_review_at"])
+        assert next_review - before <= timedelta(minutes=15)
+
+    def test_review_ease_never_drops_below_floor(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.notes as notes_routes
+
+        rows = [
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 1,
+                "review_count": 1, "ease_factor": 1.3, "interval_days": 1,
+            }
         ]
         admin, mocks = _mock_admin_tables({"review_cards": rows})
         with patch.object(notes_routes, "_admin_client", return_value=admin):
@@ -246,15 +296,17 @@ class TestReviewCards:
 
         assert resp.status_code == 200
         updates = mocks["review_cards"].update.call_args[0][0]
-        assert updates["difficulty"] == 5  # capped at 5
-        assert updates["review_count"] == 1
+        assert updates["ease_factor"] == 1.3
 
     def test_review_easy_lowers_difficulty_floor_one(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
         import routes.notes as notes_routes
 
         rows = [
-            {"id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 1, "review_count": 1}
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 1,
+                "review_count": 1, "ease_factor": 2.5, "interval_days": 1,
+            }
         ]
         admin, mocks = _mock_admin_tables({"review_cards": rows})
         with patch.object(notes_routes, "_admin_client", return_value=admin):
@@ -263,6 +315,29 @@ class TestReviewCards:
         assert resp.status_code == 200
         updates = mocks["review_cards"].update.call_args[0][0]
         assert updates["difficulty"] == 1
+        # q=5 raises ease: 2.5 + 0.1 = 2.6; interval 1 → 6 (second pass)
+        assert updates["ease_factor"] == 2.6
+        assert updates["interval_days"] == 6
+
+    def test_review_defaults_when_sm2_columns_null(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.notes as notes_routes
+
+        # Pre-migration rows have no ease_factor/interval_days values
+        rows = [
+            {
+                "id": CARD_ID, "user_id": APP_USER_ID, "difficulty": 3,
+                "review_count": 0, "ease_factor": None, "interval_days": None,
+            }
+        ]
+        admin, mocks = _mock_admin_tables({"review_cards": rows})
+        with patch.object(notes_routes, "_admin_client", return_value=admin):
+            resp = client.post(f"/api/notes/cards/{CARD_ID}/review", json={"rating": "good"})
+
+        assert resp.status_code == 200
+        updates = mocks["review_cards"].update.call_args[0][0]
+        assert updates["ease_factor"] == 2.5
+        assert updates["interval_days"] == 1
 
     def test_review_rejects_unknown_rating(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
