@@ -344,22 +344,37 @@ class TestReviewCards:
         resp = client.post(f"/api/notes/cards/{CARD_ID}/review", json={"rating": "meh"})
         assert resp.status_code == 422
 
-    def test_due_only_filters_future_cards(self, client: TestClient):
+    def test_due_only_filters_in_query_before_pagination(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
         import routes.notes as notes_routes
 
-        now = datetime.now(timezone.utc)
-        rows = [
-            {"id": "1", "next_review_at": (now - timedelta(hours=1)).isoformat()},
-            {"id": "2", "next_review_at": (now + timedelta(days=2)).isoformat()},
-            {"id": "3", "next_review_at": None},
-        ]
-        with patch.object(notes_routes, "_admin_client", return_value=_mock_admin(rows)):
+        # The due predicate must be part of the DB query (or= filter +
+        # next_review_at ordering) — Python-side filtering after .range()
+        # hid due cards beyond the first page.
+        rows = [{"id": "1"}, {"id": "3"}]
+        admin, mocks = _mock_admin_tables({"review_cards": rows})
+        with patch.object(notes_routes, "_admin_client", return_value=admin):
             resp = client.get("/api/notes/cards?due_only=true")
 
         assert resp.status_code == 200
-        ids = [c["id"] for c in resp.json()["cards"]]
-        assert ids == ["1", "3"]
+        assert [c["id"] for c in resp.json()["cards"]] == ["1", "3"]
+
+        or_filter = mocks["review_cards"].or_.call_args[0][0]
+        assert "next_review_at.is.null" in or_filter
+        assert "next_review_at.lte." in or_filter
+        assert mocks["review_cards"].order.call_args[0][0] == "next_review_at"
+
+    def test_all_cards_listing_orders_by_created(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.notes as notes_routes
+
+        admin, mocks = _mock_admin_tables({"review_cards": []})
+        with patch.object(notes_routes, "_admin_client", return_value=admin):
+            resp = client.get("/api/notes/cards")
+
+        assert resp.status_code == 200
+        mocks["review_cards"].or_.assert_not_called()
+        assert mocks["review_cards"].order.call_args[0][0] == "created_at"
 
     def test_delete_card_enforces_ownership(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user

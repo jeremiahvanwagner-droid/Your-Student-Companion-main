@@ -166,7 +166,19 @@ async def list_reminders(
         query = query.lte("trigger_at", datetime.now(timezone.utc).isoformat())
 
     rows = query.execute().data or []
-    unread = sum(1 for r in rows if not r.get("is_read"))
+
+    # Count unread across ALL reminders, not just this page, so the bell
+    # badge stays accurate when unread items fall outside the page limit.
+    count_result = (
+        admin.table("reminders")
+        .select("id", count="exact")
+        .eq("user_id", auth.app_user_id)
+        .eq("is_read", False)
+        .limit(1)
+        .execute()
+    )
+    unread = count_result.count or 0
+
     return {"reminders": rows, "count": len(rows), "unread": unread}
 
 

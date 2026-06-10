@@ -52,19 +52,20 @@ TABLE_METHODS = (
 )
 
 
-def _make_table_mock(rows=None):
+def _make_table_mock(rows=None, count=None):
     mock = MagicMock()
     result = MagicMock()
     result.data = rows if rows is not None else []
+    result.count = count if count is not None else len(rows or [])
     for method in TABLE_METHODS:
         getattr(mock, method).return_value = mock
     mock.execute.return_value = result
     return mock
 
 
-def _mock_admin(rows=None):
+def _mock_admin(rows=None, count=None):
     admin = MagicMock()
-    admin.table.return_value = _make_table_mock(rows)
+    admin.table.return_value = _make_table_mock(rows, count=count)
     return admin
 
 
@@ -95,21 +96,24 @@ class TestRemindersAuth:
 # ── Listing ───────────────────────────────────────────────────────────────
 
 class TestListReminders:
-    def test_list_counts_unread(self, client: TestClient):
+    def test_list_counts_unread_beyond_page(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user
         import routes.reminders as reminders_routes
 
+        # Page contains 2 rows but 7 unread exist overall — the badge count
+        # must come from a dedicated count query, not the paginated page.
         rows = [
             {"id": "1", "is_read": False, "title": "Due soon: Essay"},
             {"id": "2", "is_read": True, "title": "Overdue: Quiz prep"},
         ]
-        with patch.object(reminders_routes, "_admin_client", return_value=_mock_admin(rows)):
-            resp = client.get("/api/reminders")
+        admin = _mock_admin(rows, count=7)
+        with patch.object(reminders_routes, "_admin_client", return_value=admin):
+            resp = client.get("/api/reminders?limit=2")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["count"] == 2
-        assert data["unread"] == 1
+        assert data["unread"] == 7
 
     def test_create_manual_reminder(self, client: TestClient):
         app.dependency_overrides[get_app_auth_context] = _auth_user

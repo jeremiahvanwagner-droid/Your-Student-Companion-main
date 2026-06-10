@@ -136,30 +136,22 @@ async def list_cards(
         admin.table("review_cards")
         .select(CARD_COLUMNS)
         .eq("user_id", auth.app_user_id)
-        .order("created_at", desc=True)
-        .range(offset, offset + limit - 1)
     )
     if note_id:
         query = query.eq("note_id", _parse_uuid(note_id, "note_id"))
 
-    rows = query.execute().data or []
-
     if due_only:
-        now = datetime.now(timezone.utc)
-        due_rows = []
-        for row in rows:
-            next_review = row.get("next_review_at")
-            if not next_review:
-                due_rows.append(row)
-                continue
-            try:
-                when = datetime.fromisoformat(str(next_review).replace("Z", "+00:00"))
-                if when <= now:
-                    due_rows.append(row)
-            except (ValueError, TypeError):
-                due_rows.append(row)
-        rows = due_rows
+        # Filter in the query, not in Python, so due cards beyond the first
+        # page are never hidden by pagination. Never-reviewed cards (null
+        # next_review_at) count as due; most-overdue cards surface first.
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        query = query.or_(
+            f"next_review_at.is.null,next_review_at.lte.{now_iso}"
+        ).order("next_review_at", desc=False, nullsfirst=True)
+    else:
+        query = query.order("created_at", desc=True)
 
+    rows = query.range(offset, offset + limit - 1).execute().data or []
     return {"cards": rows, "count": len(rows)}
 
 
