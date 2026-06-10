@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+venv/
+.venv/
+.env
+.env.*
+tests/
+STORE_WEBHOOK_RUNBOOK.md
