@@ -81,18 +81,7 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
     isConfigured,
     agentId,
     clearError,
-  } = useElevenLabs({
-    volume,
-    onConnect: () => {
-      console.log('Voice session connected');
-    },
-    onDisconnect: () => {
-      console.log('Voice session disconnected');
-    },
-    onMessage: (message) => {
-      console.log('Received message:', message);
-    },
-  });
+  } = useElevenLabs({ volume });
 
   // Combine local messages with ElevenLabs messages
   const allMessages = isSessionActive ? elevenLabsMessages : localMessages;

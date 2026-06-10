@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
 import { fetchTasks, fetchTaskStats } from "@/lib/tasksApi";
+import { fetchBlocks } from "@/lib/plannerApi";
 import { fetchMyStudentProfile } from "@/lib/onboarding";
 
 const SEMESTER_WEEKS = 16;
@@ -49,6 +50,7 @@ const QUICK_ACTIONS = [
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [todayTasks, setTodayTasks] = useState([]);
+  const [upcomingBlocks, setUpcomingBlocks] = useState([]);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -57,16 +59,22 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Profile fetch is best-effort; if it fails we still render the dashboard
-      // with the TruthLine in its empty state.
-      const [statsRes, tasksRes, profileRes] = await Promise.all([
+      // Profile + planner fetches are best-effort; if they fail we still
+      // render the dashboard with the TruthLine/planner cards in empty state.
+      const now = new Date();
+      const horizon = new Date(now.getTime() + 48 * 3600_000);
+      const [statsRes, tasksRes, profileRes, blocksRes] = await Promise.all([
         fetchTaskStats(),
         fetchTasks({ status: "not_started,in_progress", limit: 5 }),
         fetchMyStudentProfile().catch(() => null),
+        fetchBlocks({ start: now.toISOString(), end: horizon.toISOString(), limit: 4 }).catch(
+          () => null
+        ),
       ]);
       setStats(statsRes);
       setTodayTasks(tasksRes.tasks || []);
       setProfile(profileRes?.profile || null);
+      setUpcomingBlocks(blocksRes?.blocks || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -240,12 +248,36 @@ export default function Dashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <CalendarClock className="h-4 w-4 text-accent" />
-                Due Soon + Study Blocks
+                Upcoming Study Blocks
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>Planner integrations are scaffolded and ready for Phase 2.</p>
-              <Button asChild variant="outline" className="border-border/50">
+            <CardContent className="space-y-2">
+              {upcomingBlocks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nothing scheduled in the next 48 hours. Plan a study block to stay ahead.
+                </p>
+              ) : (
+                upcomingBlocks.map((block) => (
+                  <Link
+                    key={block.id}
+                    to="/app/planner"
+                    className="flex items-center justify-between rounded-md border border-border/30 bg-card/30 px-3 py-2 text-sm transition-colors hover:bg-card/60"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-foreground">{block.title}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {new Date(block.scheduled_start).toLocaleString(undefined, {
+                          weekday: "short",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </Link>
+                ))
+              )}
+              <Button asChild variant="outline" className="mt-2 w-full border-border/50">
                 <Link to="/app/planner">Open Planner</Link>
               </Button>
             </CardContent>
