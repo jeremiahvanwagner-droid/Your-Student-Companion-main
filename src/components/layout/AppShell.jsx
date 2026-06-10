@@ -1,9 +1,9 @@
-import { Bell, BookOpen, CalendarRange, CheckSquare, CreditCard, FileText, LayoutDashboard, MessageCircle, Settings, ShoppingBag, Sparkles, Timer } from "lucide-react";
+import { BookOpen, CalendarRange, CheckSquare, CreditCard, FileText, LayoutDashboard, MessageCircle, Settings, ShoppingBag, Sparkles, Timer } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { UserButton, useAuth } from "@clerk/clerk-react";
 
 import BottomNav from "@/components/layout/BottomNav";
-import { Button } from "@/components/ui/button";
+import RemindersBell from "@/components/RemindersBell";
 import { cn } from "@/lib/utils";
 
 const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -83,9 +83,7 @@ export default function AppShell() {
           </NavLink>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Notifications">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-            </Button>
+            <RemindersBell />
             <ClerkAvatar />
           </div>
         </div>

@@ -85,6 +85,10 @@ from routes.tasks import router as tasks_router
 from routes.subjects import router as subjects_router
 from routes.focus import router as focus_router
 from routes.exams import router as exams_router
+from routes.notes import router as notes_router
+from routes.planner import router as planner_router
+from routes.reports import router as reports_router
+from routes.reminders import router as reminders_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
@@ -94,6 +98,10 @@ app.include_router(tasks_router)
 app.include_router(subjects_router)
 app.include_router(focus_router)
 app.include_router(exams_router)
+app.include_router(notes_router)
+app.include_router(planner_router)
+app.include_router(reports_router)
+app.include_router(reminders_router)
 
 
 # ============================================
@@ -142,6 +150,14 @@ async def root():
             "focus_sessions": "/api/focus/sessions",
             "focus_logs": "/api/focus/logs",
             "focus_stats": "/api/focus/stats",
+            "notes": "/api/notes",
+            "review_cards": "/api/notes/cards",
+            "planner_blocks": "/api/planner/blocks",
+            "planner_suggest": "/api/planner/suggest",
+            "weekly_report_current": "/api/reports/weekly/current",
+            "weekly_report_history": "/api/reports/weekly/history",
+            "reminders": "/api/reminders",
+            "reminders_sync": "/api/reminders/sync",
             "health": "/health",
         },
     }
