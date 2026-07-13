@@ -106,3 +106,84 @@ class TestVoiceTranscript:
         # Missing required 'messages' field
         resp = client.post("/api/ai/voice/transcript", json={})
         assert resp.status_code == 422
+
+
+# ── Daily token budget (Market Thirteen #7) ──────────────────────────────
+
+def _budget_table_mock(rows):
+    table_mock = MagicMock()
+    result = MagicMock()
+    result.data = rows
+    for method in ("select", "insert", "update", "delete", "eq", "in_", "gte", "order", "limit"):
+        getattr(table_mock, method).return_value = table_mock
+    table_mock.execute.return_value = result
+    admin = MagicMock()
+    admin.table.return_value = table_mock
+    return admin
+
+
+class TestDailyBudget:
+    def test_exhausted_budget_returns_429(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.ai_mentor as ai_mentor
+
+        with patch.object(ai_mentor, "OPENAI_API_KEY", "sk-test"), \
+             patch.object(ai_mentor, "AI_DAILY_TOKEN_BUDGET", 50000), \
+             patch.object(ai_mentor, "_fetch_purchased_pack_contexts", return_value=[]), \
+             patch.object(ai_mentor, "_tokens_used_today", return_value=50000) as used, \
+             patch.object(ai_mentor, "_call_openai") as call_openai:
+            resp = client.post("/api/ai/chat", json={"message": "Help me plan"})
+
+        assert resp.status_code == 429
+        assert "limit" in resp.json()["detail"].lower()
+        used.assert_called_once_with(APP_USER_ID)
+        call_openai.assert_not_called()
+
+    def test_under_budget_proceeds(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.ai_mentor as ai_mentor
+
+        with patch.object(ai_mentor, "OPENAI_API_KEY", "sk-test"), \
+             patch.object(ai_mentor, "AI_DAILY_TOKEN_BUDGET", 50000), \
+             patch.object(ai_mentor, "_fetch_purchased_pack_contexts", return_value=[]), \
+             patch.object(ai_mentor, "_tokens_used_today", return_value=120), \
+             patch.object(ai_mentor, "_call_openai", return_value=("Sure, here's a plan.", 42)), \
+             patch.object(ai_mentor, "_persist_ai_interaction"):
+            resp = client.post("/api/ai/chat", json={"message": "Help me plan"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["message"] == "Sure, here's a plan."
+        assert body["tokens_used"] == 42
+
+    def test_budget_disabled_skips_check(self, client: TestClient):
+        app.dependency_overrides[get_app_auth_context] = _auth_user
+        import routes.ai_mentor as ai_mentor
+
+        with patch.object(ai_mentor, "OPENAI_API_KEY", "sk-test"), \
+             patch.object(ai_mentor, "AI_DAILY_TOKEN_BUDGET", 0), \
+             patch.object(ai_mentor, "_fetch_purchased_pack_contexts", return_value=[]), \
+             patch.object(ai_mentor, "_tokens_used_today") as used, \
+             patch.object(ai_mentor, "_call_openai", return_value=("ok", 5)), \
+             patch.object(ai_mentor, "_persist_ai_interaction"):
+            resp = client.post("/api/ai/chat", json={"message": "hi"})
+
+        assert resp.status_code == 200
+        used.assert_not_called()
+
+    def test_tokens_used_today_sums_and_ignores_nulls(self):
+        import routes.ai_mentor as ai_mentor
+
+        admin = _budget_table_mock(
+            [{"tokens_used": 30}, {"tokens_used": None}, {"tokens_used": 12}]
+        )
+        with patch.object(ai_mentor, "_admin_client", return_value=admin):
+            assert ai_mentor._tokens_used_today(APP_USER_ID) == 42
+
+    def test_tokens_used_today_fails_open(self):
+        import routes.ai_mentor as ai_mentor
+
+        admin = MagicMock()
+        admin.table.side_effect = RuntimeError("supabase down")
+        with patch.object(ai_mentor, "_admin_client", return_value=admin):
+            assert ai_mentor._tokens_used_today(APP_USER_ID) == 0

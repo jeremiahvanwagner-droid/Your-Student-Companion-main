@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -13,6 +14,10 @@ from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
 router = APIRouter(prefix="/api/ai", tags=["AI Mentor"])
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# Per-user daily OpenAI spend ceiling (Market Thirteen #7). Counted from
+# ai_interactions.tokens_used since midnight UTC; <= 0 disables the check.
+AI_DAILY_TOKEN_BUDGET = int(os.environ.get("AI_DAILY_TOKEN_BUDGET", "50000"))
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
@@ -365,6 +370,38 @@ def _persist_ai_interaction(
         return
 
 
+def _tokens_used_today(user_id: str) -> int:
+    """
+    Sum tokens_used across the user's ai_interactions since midnight UTC.
+    Fail-open (return 0) on any lookup problem — a tutoring app should not
+    hard-down chat because the analytics query hiccuped.
+    """
+    if not _is_uuid(user_id):
+        return 0
+
+    admin_client = _admin_client()
+    if admin_client is None:
+        return 0
+
+    day_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    try:
+        rows = (
+            admin_client.table("ai_interactions")
+            .select("tokens_used")
+            .eq("user_id", user_id)
+            .gte("created_at", day_start.isoformat())
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return 0
+
+    return sum(int(row.get("tokens_used") or 0) for row in rows)
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("10/minute")
 async def chat_with_mentor(
@@ -408,6 +445,20 @@ async def chat_with_mentor(
             has_unlocked_context=bool(purchased_pack_contexts or supplied_pack_ids),
         )
         return ChatResponse(message=message, audio_url=None, tokens_used=0)
+
+    # Budget gate sits after the free fallback path — only metered OpenAI
+    # calls count against the daily ceiling.
+    if AI_DAILY_TOKEN_BUDGET > 0:
+        used_today = _tokens_used_today(authenticated_user_id)
+        if used_today >= AI_DAILY_TOKEN_BUDGET:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "You've reached today's AI mentor limit. It resets at "
+                    "midnight UTC — a great time to review your notes or "
+                    "run a focus session."
+                ),
+            )
 
     ai_message, tokens_used = _call_openai(messages)
 
