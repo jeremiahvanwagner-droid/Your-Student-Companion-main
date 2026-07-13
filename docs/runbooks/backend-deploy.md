@@ -1,14 +1,22 @@
 # Runbook — Backend Production Deploy (Render)
 
-**Market Thirteen item #1.** The FastAPI backend has never had a production host;
-this runbook takes it live on Render using the repo's `render.yaml` blueprint and
-`backend/Dockerfile`, then flips the frontend to use it.
+**Market Thirteen item #1 / Advancement 1** ([brief](../advancements/01-advancement-backend-production-deploy.md)).
+The FastAPI backend has never had a production host; this runbook takes it live on
+Render using the repo's `render.yaml` blueprint and `backend/Dockerfile`, then flips
+the frontend to use it.
 
 ## 0. Prerequisites
-- Migrations applied to the Supabase project **in order**: `007_planner_blocks.sql`,
+- ✅ Migrations applied to the Supabase project **in order**: `007_planner_blocks.sql`,
   `008_private_is_admin.sql`, `009_reminders_reference_and_sm2.sql`
-  (Market Thirteen item #2 — planner/reminders/SM-2 500 without them).
+  (done 2026-07-13, S-MIGRATE-001 — planner/reminders/SM-2 500 without them).
 - Render account with GitHub access to this repo.
+
+### Local image smoke test (optional but cheap)
+```bash
+docker build -t ysc-backend ./backend
+docker run --rm --env-file backend/.env -p 8000:8000 ysc-backend
+curl -s http://localhost:8000/health        # {"status":"healthy"}
+```
 
 ## 1. Environment variable inventory
 
@@ -29,11 +37,11 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 | `STRIPE_WEBHOOK_SECRET` | 🔒 | Stripe webhook destination config |
 | `SENTRY_DSN` | 🔒 | Sentry project settings |
 | `SENTRY_ENVIRONMENT` | | `production` (blueprint) |
+| `OPENAI_API_KEY` | 🔒 | OpenAI dashboard — **required for real mentor chat**: `routes/ai_mentor.py` reads it at import and `/api/ai/chat` degrades to a canned fallback without it |
+| `OPENAI_MODEL` | | defaults to `gpt-4.1-mini` in code; set only to override |
+| Optional: `ELEVENLABS_API_KEY` | 🔒 | voice synthesis endpoints are placeholders today; conversational voice runs client-side via `@elevenlabs/react` |
+| Optional: `RESEND_API_KEY` | 🔒 | add when the email layer ships (Advancement 6) |
 | Optional: `CLERK_JWKS_URL`, `CLERK_JWT_AUDIENCE`, `FRONTEND_BASE_URL`, `SENTRY_RELEASE` | | only if overriding defaults (`RENDER_GIT_COMMIT` already feeds the release tag) |
-
-> OpenAI / ElevenLabs keys: the AI mentor routes currently resolve their providers
-> at request time; add `OPENAI_API_KEY` / `ELEVENLABS_API_KEY` here when those
-> integrations move from frontend/Edge to this service.
 
 ## 2. Deploy
 1. Render → **New → Blueprint** → select this repo (`render.yaml` auto-detected).
@@ -69,7 +77,9 @@ Vercel `REACT_APP_API_BASE_URL` back to the previous value (or empty to fail
 closed) and redeploy.
 
 ## Notes
-- Image size: `requirements.txt` carries unused heavyweights (pandas, numpy,
-  boto3, motor). Trimming them is a follow-up — verify no imports first.
+- ✅ Image size: `requirements.txt` pruned 32 → 14 pins on 2026-07-13
+  (S-DEPLOY-PREP-001) — dead heavyweights (pandas, numpy, boto3, motor, pymongo,
+  et al.) removed; full 156-test suite verified green in a fresh venv containing
+  only the pruned set. Dev/test tooling lives in `requirements-dev.txt`.
 - The Dockerfile honors `$PORT` (Render) and defaults to 8000 (local/K8s);
   `/health` doubles as the container HEALTHCHECK and the platform probe.

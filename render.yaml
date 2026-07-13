@@ -40,3 +40,7 @@ services:
         sync: false
       - key: SENTRY_ENVIRONMENT
         value: production
+      # Without this the mentor chat silently serves canned fallback responses
+      # (routes/ai_mentor.py reads it at import; /api/ai/chat degrades when unset).
+      - key: OPENAI_API_KEY
+        sync: false
