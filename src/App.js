@@ -5,6 +5,7 @@ import { ClerkProvider } from "@clerk/clerk-react";
 import * as Sentry from "@sentry/react";
 import { Loader2 } from "lucide-react";
 
+import AgeGate from "@/components/AgeGate";
 import AppAccessGuard from "@/components/AppAccessGuard";
 import { Button } from "@/components/ui/button";
 import Gatekeeper from "@/components/Gatekeeper";
@@ -116,8 +117,13 @@ function AppRoutes({ withAuthGuard }) {
     </UserSubscriptionProvider>
   );
 
+  // AgeGate wraps AppAccessGuard so the 13+ check runs before onboarding and
+  // before any profile fetch. When signed out, AgeGate defers to AppAccessGuard
+  // (which redirects to "/").
   const appShellElement = withAuthGuard ? (
-    <AppAccessGuard>{shellWithPurchases}</AppAccessGuard>
+    <AgeGate>
+      <AppAccessGuard>{shellWithPurchases}</AppAccessGuard>
+    </AgeGate>
   ) : (
     shellWithPurchases
   );

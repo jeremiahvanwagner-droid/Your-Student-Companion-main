@@ -8,6 +8,21 @@
 
 ---
 
+## Addendum — Decision Record (2026-07-13)
+
+*Appended after reconciling the AI-generated [`docs/full-project-technical-outline.md`](docs/full-project-technical-outline.md) against the live codebase. This addendum captures decisions and gap items surfaced by that review; it does not renumber the sections below. The live status tracker remains [`CURRENT_STATE.md`](CURRENT_STATE.md).*
+
+**Decision — Launch scope is 13+; COPPA deferred.** YSC launches with a **hard age gate that blocks under-13 signups**. The middle-school (under-13) audience and the full COPPA build — verifiable parental consent, `parental_consent_log`, parent-initiated deletion pipeline, per-child SDK identifier suppression, children's-privacy policy section, and the `parent` role / parental portal — become a **post-launch workstream with legal counsel engaged**, rather than a pre-launch blocker on an already at-risk timeline. This preserves the middle-school ambition (see §2.5, §1) without gating the whole launch on a legal-grade regime. FERPA/COPPA review before any K-12 district deal is unchanged (see §12 risk register).
+
+**Gap items adopted from the outline reconciliation:**
+1. **`<AgeGate />` at sign-up** — enforces the 13+ decision by blocking under-13 accounts. *Not yet in code; required for launch.*
+2. **AI-mentor age-safety system prompt** — injected when the user's grade band indicates a minor. Cheap, high-value; adopt regardless of the COPPA timeline.
+3. **Internships module** — confirmed **parked** (already a future phase here in §9 / Phase 4 and out-of-scope-adjacent); no change, recorded for traceability.
+
+**Corrections noted (do not treat as new work):** the Executive Summary's "$0.99–$12.99/mo" pricing line is superseded by the locked 2-tier model — **Degree Bundle $7.99/mo, All-Access $14.99/mo**, 14-day trial, one-time packs, lifetime grandfathering (live tier constants `degree_bundle` / `all_access`; shipped Step 4, May 2026). The reconciled outline (§9) carries the authoritative table.
+
+---
+
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
