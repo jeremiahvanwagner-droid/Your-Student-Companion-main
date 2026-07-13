@@ -1,7 +1,8 @@
 {
   "name": "Your Student Companion: Study & Focus",
   "short_name": "Student Companion",
-  "description": "Study planner, focus timer, notes with spaced repetition, and an AI study mentor. Free plan available; optional subscriptions unlock course packs.",
+  "description": "Plan, study, and stay on track: task board, study planner, Pomodoro focus timer, notes with review cards, weekly progress reports, and an AI study mentor.",
+  "id": "/app",
   "start_url": "/app",
   "display": "standalone",
   "background_color": "#0a192f",
@@ -10,7 +11,7 @@
   "scope": "/",
   "lang": "en-US",
   "dir": "ltr",
-  "categories": ["education", "productivity", "utilities"],
+  "categories": ["education", "productivity"],
   "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
   "prefer_related_applications": false,
   "icons": [
@@ -32,42 +33,26 @@
       "purpose": "any maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "screenshot-wide.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Student Companion Dashboard - Your Academic Mission Control"
-    },
-    {
-      "src": "screenshot-mobile.png",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Student Companion Mobile - Study Anywhere"
-    }
-  ],
   "shortcuts": [
     {
-      "name": "Quick Search",
-      "short_name": "Search",
-      "description": "Search for word definitions instantly",
-      "url": "/app?tab=search",
+      "name": "Add Task",
+      "short_name": "Tasks",
+      "description": "Open the assignment board",
+      "url": "/app/tasks",
       "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     },
     {
       "name": "Focus Mode",
       "short_name": "Focus",
       "description": "Start a 25-minute Pomodoro focus session",
-      "url": "/app?focus=true",
+      "url": "/app/focus",
       "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     },
     {
       "name": "AI Mentor",
       "short_name": "Mentor",
-      "description": "Chat with your AI study assistant",
-      "url": "/app?tab=mentor",
+      "description": "Chat with your AI study mentor",
+      "url": "/app/mentor",
       "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     }
   ],

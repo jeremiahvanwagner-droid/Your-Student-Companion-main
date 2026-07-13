@@ -1,10 +1,14 @@
-.env
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
+venv/
+.venv/
+.env
+.env.*
 tests/
 scripts/
 migrations/
-*.md
+STORE_WEBHOOK_RUNBOOK.md
 Dockerfile
 .dockerignore

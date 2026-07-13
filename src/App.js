@@ -1,7 +1,9 @@
 import "@/App.css";
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
 import * as Sentry from "@sentry/react";
+import { Loader2 } from "lucide-react";
 
 import AppAccessGuard from "@/components/AppAccessGuard";
 import { Button } from "@/components/ui/button";
@@ -11,21 +13,34 @@ import { UserPurchasesProvider } from "@/context/UserPurchasesContext";
 import { UserSubscriptionProvider } from "@/context/UserSubscriptionContext";
 import { Toaster } from "@/components/ui/sonner";
 import Dashboard from "@/pages/Dashboard";
-import FocusPage from "@/pages/FocusPage";
-import HomePage from "@/pages/HomePage";
 import LandingPage from "@/pages/LandingPage";
-import MentorPage from "@/pages/MentorPage";
-import NotesPad from "@/pages/NotesPad";
-import NotFoundPage from "@/pages/NotFoundPage";
-import OnboardingFlow from "@/pages/OnboardingFlow";
-import SearchPage from "@/pages/SearchPage";
-import ShifterPage from "@/pages/ShifterPage";
-import StorePage from "@/pages/StorePage";
-import SubscribePage from "@/pages/SubscribePage";
-import StudyPlanner from "@/pages/StudyPlanner";
-import TaskManager from "@/pages/TaskManager";
-import UserSettings from "@/pages/UserSettings";
-import WeeklyReport from "@/pages/WeeklyReport";
+
+// Route-level code splitting (Market Thirteen #6): Landing and Dashboard stay
+// in the main bundle (first paint for signed-out and signed-in users); every
+// other page loads on navigation. Keeps Recharts, the store, and the mentor
+// out of the critical path.
+const FocusPage = lazy(() => import("@/pages/FocusPage"));
+const HomePage = lazy(() => import("@/pages/HomePage"));
+const MentorPage = lazy(() => import("@/pages/MentorPage"));
+const NotesPad = lazy(() => import("@/pages/NotesPad"));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
+const OnboardingFlow = lazy(() => import("@/pages/OnboardingFlow"));
+const SearchPage = lazy(() => import("@/pages/SearchPage"));
+const ShifterPage = lazy(() => import("@/pages/ShifterPage"));
+const StorePage = lazy(() => import("@/pages/StorePage"));
+const SubscribePage = lazy(() => import("@/pages/SubscribePage"));
+const StudyPlanner = lazy(() => import("@/pages/StudyPlanner"));
+const TaskManager = lazy(() => import("@/pages/TaskManager"));
+const UserSettings = lazy(() => import("@/pages/UserSettings"));
+const WeeklyReport = lazy(() => import("@/pages/WeeklyReport"));
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-accent" />
+    </div>
+  );
+}
 
 const clerkPubKey =
   process.env.REACT_APP_CLERK_PUBLISHABLE_KEY ||
@@ -106,32 +121,34 @@ function AppRoutes({ withAuthGuard }) {
   );
 
   return (
-    <Routes>
-      <Route path="/" element={<Gatekeeper />} />
-      <Route path="/landing" element={<LandingPage />} />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/" element={<Gatekeeper />} />
+        <Route path="/landing" element={<LandingPage />} />
 
-      <Route path="/app" element={appShellElement}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="legacy" element={<HomePage />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="tasks" element={<TaskManager />} />
-        <Route path="planner" element={<StudyPlanner />} />
-        <Route path="focus" element={<FocusPage />} />
-        <Route path="mentor" element={<MentorPage />} />
-        <Route path="store" element={<StorePage />} />
-        <Route path="store/:degreeSlug" element={<StorePage />} />
-        <Route path="subscribe" element={<SubscribePage />} />
-        <Route path="notes" element={<NotesPad />} />
-        <Route path="progress" element={<WeeklyReport />} />
-        <Route path="settings" element={<UserSettings />} />
-        <Route path="onboarding" element={<OnboardingFlow />} />
+        <Route path="/app" element={appShellElement}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="legacy" element={<HomePage />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="tasks" element={<TaskManager />} />
+          <Route path="planner" element={<StudyPlanner />} />
+          <Route path="focus" element={<FocusPage />} />
+          <Route path="mentor" element={<MentorPage />} />
+          <Route path="store" element={<StorePage />} />
+          <Route path="store/:degreeSlug" element={<StorePage />} />
+          <Route path="subscribe" element={<SubscribePage />} />
+          <Route path="notes" element={<NotesPad />} />
+          <Route path="progress" element={<WeeklyReport />} />
+          <Route path="settings" element={<UserSettings />} />
+          <Route path="onboarding" element={<OnboardingFlow />} />
 
-        <Route path="search" element={<SearchPage />} />
-        <Route path="shifter" element={<ShifterPage />} />
-      </Route>
+          <Route path="search" element={<SearchPage />} />
+          <Route path="shifter" element={<ShifterPage />} />
+        </Route>
 
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   );
 }
 

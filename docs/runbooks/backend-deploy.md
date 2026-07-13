@@ -1,52 +1,85 @@
-# Runbook — Backend Production Deploy
+# Runbook — Backend Production Deploy (Render)
 
-**Service:** FastAPI (`backend/server.py`) · **Container:** `backend/Dockerfile` (python:3.11-slim, non-root, `${PORT}`-aware)
-**Recommended host:** Render Web Service (long-lived ASGI: JWKS caching in `clerk_auth.py`, Stripe webhook latency, slowapi in-memory limits all fight serverless cold starts)
-**Companion brief:** [docs/advancements/01-advancement-backend-production-deploy.md](../advancements/01-advancement-backend-production-deploy.md)
+**Market Thirteen item #1 / Advancement 1** ([brief](../advancements/01-advancement-backend-production-deploy.md)).
+The FastAPI backend has never had a production host; this runbook takes it live on
+Render using the repo's `render.yaml` blueprint and `backend/Dockerfile`, then flips
+the frontend to use it.
 
-## Local smoke test (run before every first-time host setup)
+## 0. Prerequisites
+- ✅ Migrations applied to the Supabase project **in order**: `007_planner_blocks.sql`,
+  `008_private_is_admin.sql`, `009_reminders_reference_and_sm2.sql`
+  (done 2026-07-13, S-MIGRATE-001 — planner/reminders/SM-2 500 without them).
+- Render account with GitHub access to this repo.
 
+### Local image smoke test (optional but cheap)
 ```bash
-cd backend
-docker build -t ysc-api .
-docker run --rm -p 8000:8000 --env-file .env ysc-api
+docker build -t ysc-backend ./backend
+docker run --rm --env-file backend/.env -p 8000:8000 ysc-backend
 curl -s http://localhost:8000/health        # {"status":"healthy"}
-curl -s http://localhost:8000/api/health    # detailed payload
 ```
 
-## Render setup (one-time, dashboard)
+## 1. Environment variable inventory
 
-1. New → Web Service → connect `jeremiahvanwagner-droid/Your-Student-Companion-main`.
-2. Root directory: `backend` · Runtime: Docker · Region: **us-east** (matches Supabase) · Health check path: `/health` · Auto-deploy: on merge to `main`.
-3. Environment variables (values live in `backend/.env` locally — never commit them):
+These are every variable the backend reads (`grep os.getenv backend/`). Secrets
+marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 
-| Variable | Purpose |
-|---|---|
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | DB access |
-| `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | JWT verification |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | payments |
-| `SENTRY_DSN` | backend error reporting |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | AI mentor |
-| `RESEND_API_KEY` | email (Advancement 6) |
-| `LOG_LEVEL` | `INFO` |
-| `CORS_ALLOWED_ORIGINS` | `https://ysc.growthbychoice.com,https://your-student-companion-main.vercel.app` |
+| Variable | 🔒 | Source of truth |
+|---|---|---|
+| `APP_ENV` | | `production` (set in blueprint) |
+| `LOG_LEVEL` | | `INFO` (blueprint) |
+| `CORS_ALLOWED_ORIGINS` | | prod + vercel domains (blueprint; comma-separated, no spaces) |
+| `SUPABASE_URL` | | Supabase dashboard → Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | 🔒 | Supabase dashboard (service role — backend only, never frontend) |
+| `SUPABASE_ANON_KEY` | 🔒 | Supabase dashboard |
+| `REACT_APP_CLERK_PUBLISHABLE_KEY` | 🔒 | Clerk dashboard (backend derives the issuer from it) |
+| `CLERK_ISSUER` | 🔒 | Clerk dashboard → API → Frontend API URL (explicit override; preferred in prod) |
+| `STRIPE_SECRET_KEY` | 🔒 | Stripe dashboard (Test now; swap at Live cutover, item #3) |
+| `STRIPE_WEBHOOK_SECRET` | 🔒 | Stripe webhook destination config |
+| `SENTRY_DSN` | 🔒 | Sentry project settings |
+| `SENTRY_ENVIRONMENT` | | `production` (blueprint) |
+| `OPENAI_API_KEY` | 🔒 | OpenAI dashboard — **required for real mentor chat**: `routes/ai_mentor.py` reads it at import and `/api/ai/chat` degrades to a canned fallback without it |
+| `OPENAI_MODEL` | | defaults to `gpt-4.1-mini` in code; set only to override |
+| Optional: `ELEVENLABS_API_KEY` | 🔒 | voice synthesis endpoints are placeholders today; conversational voice runs client-side via `@elevenlabs/react` |
+| Optional: `RESEND_API_KEY` | 🔒 | add when the email layer ships (Advancement 6) |
+| Optional: `CLERK_JWKS_URL`, `CLERK_JWT_AUDIENCE`, `FRONTEND_BASE_URL`, `SENTRY_RELEASE` | | only if overriding defaults (`RENDER_GIT_COMMIT` already feeds the release tag) |
 
-4. Vercel → Project Settings → Environment Variables → `REACT_APP_API_BASE_URL=https://<service>.onrender.com` (Production + Preview) → redeploy frontend.
-5. Better Stack → new monitor on `https://<service>.onrender.com/api/health`, alert after 2 consecutive failures → `support@truthjblue.com`.
+## 2. Deploy
+1. Render → **New → Blueprint** → select this repo (`render.yaml` auto-detected).
+2. Fill the prompted secrets from §1. Apply. First build ≈ 5–8 min (Docker).
+3. Note the service URL, e.g. `https://ysc-backend.onrender.com`.
 
-## Deploy-on-merge behavior
+## 3. Smoke test (before touching the frontend)
+```bash
+curl -s https://<service>/health           # → {"status":"healthy"}
+curl -s https://<service>/api/             # → endpoint directory JSON
+curl -s -o /dev/null -w "%{http_code}" \
+  https://<service>/api/tasks              # → 401 (auth enforced, not 500)
+```
+Confirm a JSON log line per request in Render logs and an `X-Request-ID` response header.
 
-Render rebuilds the Docker image on every push to `main` (`backend/` root). Frontend deploys via Vercel on the same merge — backend and frontend ship together.
+## 4. Flip the frontend
+1. Vercel → Project → Settings → Environment Variables →
+   `REACT_APP_API_BASE_URL = https://<service>` (Production + Preview).
+2. Redeploy the frontend. Sign in on production: dashboard stats, task create,
+   bell sync, and mentor chat must all succeed (Network tab: calls hit the
+   Render host, no CORS errors).
 
-## Rollback
+## 5. Monitoring
+1. Better Stack → new monitor on `https://<service>/api/health`, 3-min interval,
+   alert after 2 failures (same policy as the frontend monitor).
+2. Sentry → confirm a deliberate test error from the backend arrives tagged with
+   `request_id` and `environment=production`.
 
-- **Bad backend deploy:** Render dashboard → Deploys → "Rollback" to the previous image (~1 min). Service is stateless; all state is in Supabase.
-- **Kill the backend entirely:** Render → Settings → Suspend; then blank `REACT_APP_API_BASE_URL` in Vercel and redeploy (frontend degrades to pre-deploy behavior).
-- **Dependency prune regression:** `git revert` the commit touching `backend/requirements.txt`; the previous pin list is fully restored.
+## 6. Rollback
+Render → service → **Rollback** to the previous deploy (one click). The frontend
+needs no change — the API URL is stable. If the service is hard-down, set
+Vercel `REACT_APP_API_BASE_URL` back to the previous value (or empty to fail
+closed) and redeploy.
 
-## Verification checklist after any deploy
-
-- [ ] `curl https://<api>/health` → 200
-- [ ] Sign in on ysc.growthbychoice.com → dashboard loads `/api/tasks/stats` (Network tab: 200, CORS clean)
-- [ ] Sentry backend project shows the release; no new 5xx in first hour
-- [ ] Better Stack monitor green
+## Notes
+- ✅ Image size: `requirements.txt` pruned 32 → 14 pins on 2026-07-13
+  (S-DEPLOY-PREP-001) — dead heavyweights (pandas, numpy, boto3, motor, pymongo,
+  et al.) removed; full 156-test suite verified green in a fresh venv containing
+  only the pruned set. Dev/test tooling lives in `requirements-dev.txt`.
+- The Dockerfile honors `$PORT` (Render) and defaults to 8000 (local/K8s);
+  `/health` doubles as the container HEALTHCHECK and the platform probe.
