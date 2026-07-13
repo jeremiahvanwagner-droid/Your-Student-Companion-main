@@ -27,6 +27,7 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 |---|---|---|
 | `APP_ENV` | | `production` (set in blueprint) |
 | `LOG_LEVEL` | | `INFO` (blueprint) |
+| `AI_DAILY_TOKEN_BUDGET` | | `50000` (blueprint) — per-user daily OpenAI token ceiling; `0` disables |
 | `CORS_ALLOWED_ORIGINS` | | prod + vercel domains (blueprint; comma-separated, no spaces) |
 | `SUPABASE_URL` | | Supabase dashboard → Project Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | 🔒 | Supabase dashboard (service role — backend only, never frontend) |
