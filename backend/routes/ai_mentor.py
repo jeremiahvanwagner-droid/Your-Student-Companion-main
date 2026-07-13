@@ -30,6 +30,25 @@ FREE_TIER_CONTEXT = (
     "time management guidance, and concept explanations without paid specialization."
 )
 
+# Age brackets — keep in sync with src/lib/ageGate.js (AGE_BRACKET).
+AGE_BRACKET_UNDER_13 = "under_13"
+AGE_BRACKET_MINOR = "minor_13_17"
+AGE_BRACKET_ADULT = "adult_18_plus"
+
+# Layered on top of BASE_SYSTEM_PROMPT (never replaces it) when the authenticated
+# user is a minor (under 18). Gap item #2 from the 2026-07-13 outline
+# reconciliation / 13+ launch decision.
+MINOR_SAFETY_PROMPT = (
+    "SAFETY — This student is a minor (under 18). Keep every response strictly "
+    "age-appropriate for a teenager. Do not produce or engage with content involving "
+    "self-harm, suicide, violence, weapons, illegal drugs, alcohol, sexual or romantic "
+    "material, or gambling. If such a topic comes up, gently decline and, when the "
+    "student's safety may be at risk, encourage them to talk with a trusted adult or a "
+    "professional resource. Never ask for or store personal identifying details (full "
+    "name, home address, phone number, school name, precise location, or photos). Keep "
+    "a warm, encouraging tone and stay focused on studying and schoolwork."
+)
+
 
 class ChatMessage(BaseModel):
     role: str
@@ -42,6 +61,9 @@ class ChatRequest(BaseModel):
     unlocked_packs: Optional[List[str]] = []
     user_id: Optional[str] = None
     voice_enabled: Optional[bool] = False
+    # Hint from the frontend AgeGate bracket (readAgeGate(...).isMinor). A
+    # server-authoritative bracket in the JWT claims, when present, overrides it.
+    is_minor: Optional[bool] = None
 
 
 class ChatResponse(BaseModel):
@@ -264,6 +286,56 @@ def _build_pack_context_text(packs: List[Dict[str, Any]], fallback_ids: List[str
     )
 
 
+def _bracket_from_claims(claims: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Best-effort read of the age-gate bracket from Clerk JWT claims.
+
+    This is server-authoritative IF a Clerk JWT template surfaces the value —
+    it is not part of the session token by default. Checking a couple of common
+    shapes means wiring that template later requires no code change here.
+    """
+    if not isinstance(claims, dict):
+        return None
+
+    flat = claims.get("age_bracket") or claims.get("ageBracket")
+    if isinstance(flat, str) and flat:
+        return flat
+
+    for meta_key in (
+        "unsafe_metadata",
+        "unsafeMetadata",
+        "public_metadata",
+        "publicMetadata",
+        "metadata",
+    ):
+        meta = claims.get(meta_key)
+        if isinstance(meta, dict):
+            age_gate = meta.get("ageGate")
+            if isinstance(age_gate, dict):
+                bracket = age_gate.get("bracket")
+                if isinstance(bracket, str) and bracket:
+                    return bracket
+
+    return None
+
+
+def _resolve_is_minor(claims: Optional[Dict[str, Any]], client_hint: Optional[bool]) -> bool:
+    """Decide whether to layer the minor safety prompt onto the system message.
+
+    Prefers a server-authoritative bracket from the JWT claims when present;
+    otherwise falls back to the client-supplied hint (from the AgeGate bracket).
+    The safety prompt is defense-in-depth on top of BASE_SYSTEM_PROMPT, so a
+    tampered hint at worst removes an *extra* safeguard for that user's own
+    session — the base guardrails (no cheating, age-appropriate reading level)
+    always remain.
+    """
+    bracket = _bracket_from_claims(claims)
+    if bracket in (AGE_BRACKET_MINOR, AGE_BRACKET_UNDER_13):
+        return True
+    if bracket == AGE_BRACKET_ADULT:
+        return False
+    return bool(client_hint)
+
+
 def _call_openai(messages: List[Dict[str, str]]) -> tuple[str, Optional[int]]:
     if not OPENAI_API_KEY:
         raise HTTPException(
@@ -393,10 +465,18 @@ async def chat_with_mentor(
         supplied_pack_ids,
     )
 
+    # Age-safety: layer the minor guardrails onto the system prompt when the
+    # authenticated user is under 18 (JWT claims authoritative, AgeGate hint as
+    # fallback). BASE_SYSTEM_PROMPT is always present.
+    is_minor = _resolve_is_minor(auth.claims, chat_request.is_minor)
+    system_prompt = (
+        f"{BASE_SYSTEM_PROMPT}\n\n{MINOR_SAFETY_PROMPT}" if is_minor else BASE_SYSTEM_PROMPT
+    )
+
     messages: List[Dict[str, str]] = [
         {
             "role": "system",
-            "content": f"{BASE_SYSTEM_PROMPT}\n\n{pack_context_text}",
+            "content": f"{system_prompt}\n\n{pack_context_text}",
         },
         *history,
         {"role": "user", "content": user_message},

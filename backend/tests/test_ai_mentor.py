@@ -106,3 +106,83 @@ class TestVoiceTranscript:
         # Missing required 'messages' field
         resp = client.post("/api/ai/voice/transcript", json={})
         assert resp.status_code == 422
+
+
+# ── Minor age-safety system prompt (gap item #2) ──────────────────────────
+
+
+def _auth_user_with_claims(claims) -> AppAuthContext:
+    return AppAuthContext(
+        clerk_user_id="user_test_mentor",
+        email="student@example.com",
+        claims=claims,
+        app_user_id=APP_USER_ID,
+        role="student",
+    )
+
+
+class TestMinorSafetyPrompt:
+    def _capture_system_prompt(self, client: TestClient, *, body_extra, auth):
+        """POST a chat and return (system_prompt_text, ai_mentor_module)."""
+        app.dependency_overrides[get_app_auth_context] = lambda: auth
+        import routes.ai_mentor as ai_routes
+
+        captured = {}
+
+        def fake_call(messages):
+            captured["messages"] = messages
+            return "ok", 5
+
+        with patch.object(ai_routes, "OPENAI_API_KEY", "test-key"), patch.object(
+            ai_routes, "_call_openai", side_effect=fake_call
+        ), patch.object(
+            ai_routes, "_admin_client", return_value=_mock_admin_client_no_supabase()
+        ):
+            resp = client.post(
+                "/api/ai/chat", json={"message": "help me study", **body_extra}
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert "messages" in captured, "OpenAI path was not exercised"
+        return captured["messages"][0]["content"], ai_routes
+
+    def test_minor_hint_injects_safety_prompt(self, client: TestClient):
+        system, ai_routes = self._capture_system_prompt(
+            client, body_extra={"is_minor": True}, auth=_auth_user()
+        )
+        assert ai_routes.MINOR_SAFETY_PROMPT in system
+        assert ai_routes.BASE_SYSTEM_PROMPT in system  # base is never replaced
+
+    def test_adult_hint_omits_safety_prompt(self, client: TestClient):
+        system, ai_routes = self._capture_system_prompt(
+            client, body_extra={"is_minor": False}, auth=_auth_user()
+        )
+        assert ai_routes.MINOR_SAFETY_PROMPT not in system
+        assert ai_routes.BASE_SYSTEM_PROMPT in system
+
+    def test_missing_hint_defaults_to_no_safety_prompt(self, client: TestClient):
+        system, ai_routes = self._capture_system_prompt(
+            client, body_extra={}, auth=_auth_user()
+        )
+        assert ai_routes.MINOR_SAFETY_PROMPT not in system
+
+    def test_claims_minor_bracket_overrides_false_hint(self, client: TestClient):
+        # JWT claim (authoritative) says minor; client hint says not. Claim wins.
+        claims = {
+            "sub": "user_test_mentor",
+            "unsafe_metadata": {"ageGate": {"bracket": "minor_13_17"}},
+        }
+        system, ai_routes = self._capture_system_prompt(
+            client, body_extra={"is_minor": False}, auth=_auth_user_with_claims(claims)
+        )
+        assert ai_routes.MINOR_SAFETY_PROMPT in system
+
+    def test_claims_adult_bracket_overrides_true_hint(self, client: TestClient):
+        claims = {
+            "sub": "user_test_mentor",
+            "unsafe_metadata": {"ageGate": {"bracket": "adult_18_plus"}},
+        }
+        system, ai_routes = self._capture_system_prompt(
+            client, body_extra={"is_minor": True}, auth=_auth_user_with_claims(claims)
+        )
+        assert ai_routes.MINOR_SAFETY_PROMPT not in system
