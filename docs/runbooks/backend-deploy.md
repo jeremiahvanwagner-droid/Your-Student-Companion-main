@@ -41,7 +41,10 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 | `OPENAI_API_KEY` | 🔒 | OpenAI dashboard — **required for real mentor chat**: `routes/ai_mentor.py` reads it at import and `/api/ai/chat` degrades to a canned fallback without it |
 | `OPENAI_MODEL` | | defaults to `gpt-4.1-mini` in code; set only to override |
 | Optional: `ELEVENLABS_API_KEY` | 🔒 | voice synthesis endpoints are placeholders today; conversational voice runs client-side via `@elevenlabs/react` |
-| Optional: `RESEND_API_KEY` | 🔒 | add when the email layer ships (Advancement 6) |
+| `RESEND_API_KEY` | 🔒 | Resend dashboard — email layer (welcome + weekly reset). Absent = emails silently no-op |
+| `EMAIL_FROM` | | verified sender, e.g. `Your Student Companion <hello@ysc.growthbychoice.com>` (verify the domain in Resend first) |
+| `CRON_SECRET` | 🔒 | any long random string; shared between the API service and the `ysc-weekly-reset` cron job (blueprint) which POSTs `/api/email/weekly-reset-run` Sundays 23:00 UTC |
+| `API_BASE_URL` | | this service's public URL — builds unsubscribe links in outbound email |
 | Optional: `CLERK_JWKS_URL`, `CLERK_JWT_AUDIENCE`, `FRONTEND_BASE_URL`, `SENTRY_RELEASE` | | only if overriding defaults (`RENDER_GIT_COMMIT` already feeds the release tag) |
 
 ## 2. Deploy

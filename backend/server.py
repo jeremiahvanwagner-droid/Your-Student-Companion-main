@@ -89,6 +89,7 @@ from routes.notes import router as notes_router
 from routes.planner import router as planner_router
 from routes.reports import router as reports_router
 from routes.reminders import router as reminders_router
+from routes.email_ops import router as email_ops_router
 
 app.include_router(ai_mentor_router)
 app.include_router(store_router)
@@ -102,6 +103,7 @@ app.include_router(notes_router)
 app.include_router(planner_router)
 app.include_router(reports_router)
 app.include_router(reminders_router)
+app.include_router(email_ops_router)
 
 
 # ============================================
