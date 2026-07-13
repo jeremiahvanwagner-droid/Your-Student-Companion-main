@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { getUnlockedPacks } from "@/components/Store";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
 import { sendMentorChat, persistVoiceTranscript } from "@/lib/aiMentorApi";
+import { track } from "@/lib/analytics";
 
 const STORAGE_KEY = "studentCompanion_chatHistory";
 
@@ -143,6 +144,7 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
         user_id: userId,
         voice_enabled: false,
       });
+      track("mentor_message");
 
       const aiResponse = {
         id: Date.now() + 1,

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -182,6 +184,7 @@ export default function NotesPad() {
         toast.success("Note updated");
       } else {
         await createNote(payload);
+        track("note_create", { tag_count: payload.tags.length });
         toast.success("Note created");
       }
       setShowNoteDialog(false);
@@ -270,6 +273,7 @@ export default function NotesPad() {
     setReviewSaving(true);
     try {
       await reviewCard(card.id, rating);
+      track("card_review", { rating });
       if (reviewIndex >= dueCards.length - 1) {
         toast.success("Review session complete!");
         await loadCards();

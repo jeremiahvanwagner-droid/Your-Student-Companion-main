@@ -389,3 +389,94 @@ def upsert_student_profile(
     )
 
     return {"profile": profile, "created": created}
+
+
+# ---------------------------------------------------------------------------
+# Account deletion (Market Thirteen #5 — data deletion request flow)
+# ---------------------------------------------------------------------------
+
+def _cancel_stripe_subscriptions(admin, user_id: str) -> int:
+    """
+    Best-effort: cancel any active Stripe subscriptions before the account
+    rows disappear, so nobody keeps getting billed for a deleted account.
+    Failures are swallowed (deletion proceeds) — the webhook ledger and
+    Stripe dashboard remain the recovery path.
+    """
+    cancelled = 0
+    try:
+        import os
+
+        import stripe
+
+        stripe_key = os.getenv("STRIPE_SECRET_KEY")
+        if not stripe_key:
+            return 0
+        stripe.api_key = stripe_key
+
+        rows = (
+            admin.table("user_subscriptions")
+            .select("stripe_subscription_id,status")
+            .eq("user_id", user_id)
+            .in_("status", ["active", "trialing", "past_due"])
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            sub_id = row.get("stripe_subscription_id")
+            if not sub_id:
+                continue
+            try:
+                stripe.Subscription.cancel(sub_id)
+                cancelled += 1
+            except Exception:  # pylint: disable=broad-except
+                continue
+    except Exception:  # pylint: disable=broad-except
+        return cancelled
+    return cancelled
+
+
+@router.delete("/me")
+def delete_my_account(auth: AppAuthContext = Depends(get_app_auth_context)):
+    """
+    Delete the authenticated user's application data. The users row delete
+    cascades across every owned table (assignments, notes, planner blocks,
+    reminders, ai_interactions, purchases, …). The Clerk login identity is
+    NOT deleted here — signing in again starts a fresh, empty account; full
+    identity removal is documented in the privacy policy.
+    """
+    admin = _admin_client()
+    user_id = auth.app_user_id
+
+    cancelled = _cancel_stripe_subscriptions(admin, user_id)
+
+    # Audit the request first, then detach those rows from the FK so the
+    # user delete isn't blocked (audit_logs.actor_id has no cascade).
+    write_audit_log(
+        admin,
+        actor_id=user_id,
+        action="account.delete",
+        entity_type="user",
+        entity_id=user_id,
+        metadata={"stripe_subscriptions_cancelled": cancelled},
+    )
+    try:
+        admin.table("audit_logs").update({"actor_id": None}).eq(
+            "actor_id", user_id
+        ).execute()
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+    try:
+        admin.table("users").delete().eq("id", user_id).execute()
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(
+            status_code=500,
+            detail="Account deletion failed. Please contact support.",
+        ) from exc
+
+    return {
+        "deleted": True,
+        "stripe_subscriptions_cancelled": cancelled,
+        "clerk_identity": "retained — see privacy policy for full identity removal",
+    }

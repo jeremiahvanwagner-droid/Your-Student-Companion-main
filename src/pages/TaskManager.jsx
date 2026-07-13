@@ -44,6 +44,7 @@ import {
   createSubject,
 } from "@/lib/tasksApi";
 import SubjectPicker from "@/components/SubjectPicker";
+import { track } from "@/lib/analytics";
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ export default function TaskManager() {
       if (form.estimated_minutes) payload.estimated_minutes = Number(form.estimated_minutes);
 
       await createTask(payload);
+      track("task_create", { has_due_date: Boolean(form.due_date) });
       toast.success("Task created");
       setShowCreate(false);
       setForm(EMPTY_FORM);

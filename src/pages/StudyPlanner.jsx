@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -126,6 +128,7 @@ export default function StudyPlanner() {
       if (form.subject_id) payload.subject_id = form.subject_id;
 
       await createBlock(payload);
+      track("block_create", { source: "manual" });
       toast.success("Study block added");
       setShowCreate(false);
       setForm(EMPTY_FORM);
@@ -197,6 +200,7 @@ export default function StudyPlanner() {
           source: "auto_suggest",
         }))
       );
+      track("block_create", { source: "auto_suggest", count: chosen.length });
       toast.success(`Added ${chosen.length} study block${chosen.length !== 1 ? "s" : ""}`);
       setSuggestions(null);
       await loadBlocks();

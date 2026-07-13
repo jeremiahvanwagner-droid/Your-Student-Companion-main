@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -236,6 +237,7 @@ export default function OnboardingFlow() {
         updated_at: new Date().toISOString(),
       });
       setOnboardingComplete(true);
+      track("onboarding_complete");
 
       toast.success("Onboarding completed", {
         description: "Your dashboard is ready.",

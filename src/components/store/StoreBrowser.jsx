@@ -3,6 +3,8 @@ import { ShoppingBag } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
+
 import { Card, CardContent } from "@/components/ui/card";
 import DegreeSelector from "@/components/store/DegreeSelector";
 import LevelSelector from "@/components/store/LevelSelector";
@@ -119,6 +121,7 @@ export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
 
     if (status === "success") {
       setCheckoutStatus("success");
+      track("checkout_success", { kind: "pack" });
       toast.success("Payment successful", {
         description: "Refreshing your purchased packs.",
       });
@@ -145,6 +148,7 @@ export default function StoreBrowser({ onPackUnlock, initialDegreeSlug }) {
   const handleCheckout = useCallback(
     async (pack) => {
       setCheckoutLoading(true);
+      track("checkout_start", { kind: "pack" });
       try {
         const baseUrl = `${window.location.origin}${window.location.pathname}`;
         const session = await createCheckoutSession({

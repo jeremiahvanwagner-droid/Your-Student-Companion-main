@@ -596,6 +596,8 @@ const LandingPage = () => {
               <a href="#features" className="hover:text-foreground transition-colors">Features</a>
               <a href="#pricing" className="hover:text-foreground transition-colors">Compare</a>
               <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
+              <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+              <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
               {isSignedIn ? (
                 <Link to="/app" className="hover:text-accent transition-colors">Dashboard</Link>
               ) : (

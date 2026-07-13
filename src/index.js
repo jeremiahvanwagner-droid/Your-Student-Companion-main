@@ -4,12 +4,16 @@ import { toast } from "sonner";
 import "@/index.css";
 import App from "@/App";
 import { initSentry } from "@/lib/sentry";
+import { initAnalytics } from "@/lib/analytics";
 import * as serviceWorkerRegistration from "@/serviceWorkerRegistration";
 
 // Initialize Sentry before React mounts so unhandled errors during the very
 // first render are captured. No-ops cleanly when REACT_APP_SENTRY_DSN is not
 // set (local dev, marketing-preview builds).
 initSentry();
+
+// PostHog product analytics — same no-op contract when the key is absent.
+initAnalytics();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

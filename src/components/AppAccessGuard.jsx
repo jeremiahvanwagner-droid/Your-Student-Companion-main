@@ -9,6 +9,7 @@ import {
   setOnboardingComplete,
 } from "@/lib/onboarding";
 import { identifySentryUser } from "@/lib/sentry";
+import { identifyAnalyticsUser } from "@/lib/analytics";
 
 /**
  * AppAccessGuard — the gate that sits between Clerk's signed-in state and the
@@ -75,6 +76,7 @@ export default function AppAccessGuard({ children }) {
   useEffect(() => {
     if (isLoaded && isSignedIn && userId) {
       identifySentryUser(userId);
+      identifyAnalyticsUser(userId);
     }
   }, [isLoaded, isSignedIn, userId]);
 

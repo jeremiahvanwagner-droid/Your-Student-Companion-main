@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
 import SubscriptionPlans from "@/components/subscribe/SubscriptionPlans";
 import SubscriptionSuccess from "@/components/subscribe/SubscriptionSuccess";
 import { useUserSubscriptionContext } from "@/context/UserSubscriptionContext";
@@ -25,6 +26,7 @@ export default function SubscribePage() {
 
     if (status === "success") {
       setView("success");
+      track("checkout_success", { kind: "subscription" });
       toast.success("Subscription started", {
         description: "Refreshing your plan details.",
       });
