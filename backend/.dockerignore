@@ -7,4 +7,8 @@ venv/
 .env
 .env.*
 tests/
+scripts/
+migrations/
 STORE_WEBHOOK_RUNBOOK.md
+Dockerfile
+.dockerignore
