@@ -50,11 +50,8 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Install test dependencies
-        run: pip install pytest httpx pytest-cov
+      - name: Install backend dependencies (runtime + dev)
+        run: pip install -r backend/requirements-dev.txt
 
       - name: Run backend tests with coverage
         run: python -m pytest backend/tests/ -v --cov=backend --cov-report=term --cov-fail-under=25

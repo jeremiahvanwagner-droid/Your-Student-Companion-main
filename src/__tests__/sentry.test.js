@@ -99,8 +99,19 @@ describe("scrubPII", () => {
 });
 
 describe("initSentry", () => {
+  // craco test loads .env.local, so a developer's real REACT_APP_SENTRY_DSN
+  // would leak into the default-parameter path and flip the "no DSN" cases.
+  const savedDsn = process.env.REACT_APP_SENTRY_DSN;
+
   beforeEach(() => {
     _resetForTests();
+    delete process.env.REACT_APP_SENTRY_DSN;
+  });
+
+  afterAll(() => {
+    if (savedDsn !== undefined) {
+      process.env.REACT_APP_SENTRY_DSN = savedDsn;
+    }
   });
 
   it("returns false when no DSN is provided", () => {

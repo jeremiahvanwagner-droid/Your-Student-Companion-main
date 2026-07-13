@@ -1,7 +1,7 @@
 {
   "name": "Your Student Companion: Study & Focus",
   "short_name": "Student Companion",
-  "description": "Dictionary, Thesaurus & AI Tutor - The best free study app for college. Focus timer, Pomodoro technique, college planner, homework helper, and offline dictionary. No subscription required.",
+  "description": "Study planner, focus timer, notes with spaced repetition, and an AI study mentor. Free plan available; optional subscriptions unlock course packs.",
   "start_url": "/app",
   "display": "standalone",
   "background_color": "#0a192f",
