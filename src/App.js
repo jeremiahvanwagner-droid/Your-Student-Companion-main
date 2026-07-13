@@ -25,6 +25,8 @@ const MentorPage = lazy(() => import("@/pages/MentorPage"));
 const NotesPad = lazy(() => import("@/pages/NotesPad"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 const OnboardingFlow = lazy(() => import("@/pages/OnboardingFlow"));
+const PrivacyPage = lazy(() => import("@/pages/PrivacyPage"));
+const TermsPage = lazy(() => import("@/pages/TermsPage"));
 const SearchPage = lazy(() => import("@/pages/SearchPage"));
 const ShifterPage = lazy(() => import("@/pages/ShifterPage"));
 const StorePage = lazy(() => import("@/pages/StorePage"));
@@ -125,6 +127,8 @@ function AppRoutes({ withAuthGuard }) {
       <Routes>
         <Route path="/" element={<Gatekeeper />} />
         <Route path="/landing" element={<LandingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
 
         <Route path="/app" element={appShellElement}>
           <Route index element={<Navigate to="dashboard" replace />} />
@@ -204,12 +208,17 @@ function App() {
 
     // Development convenience: render the landing page for marketing work without Clerk,
     // but refuse to render any /app/* route — they would also be unguarded.
+    // Legal pages stay reachable — they must never depend on auth config.
     return (
       <div className="min-h-screen bg-background text-foreground">
         <BrowserRouter>
-          <Routes>
-            <Route path="*" element={<LandingPage />} />
-          </Routes>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="*" element={<LandingPage />} />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
         <Toaster position="top-center" richColors />
       </div>

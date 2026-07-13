@@ -3,6 +3,7 @@ import { Focus, Play, Pause, RotateCcw, X, Trophy, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { track } from "@/lib/analytics";
 import {
   createStudySession,
   completeStudySession,
@@ -86,6 +87,8 @@ const FocusMode = ({ onFocusStateChange }) => {
       }).catch(() => {});
       sessionIdRef.current = null;
     }
+
+    track("focus_complete", { minutes: 25, partial: false });
 
     // Show success toast
     toast.success("Focus session complete!", {
@@ -189,6 +192,7 @@ const FocusMode = ({ onFocusStateChange }) => {
         const newTotal = totalMinutesFocused + minutesCompleted;
         setTotalMinutesFocused(newTotal);
         saveLocalMinutes(newTotal);
+        track("focus_complete", { minutes: minutesCompleted, partial: true });
         toast.info(`Partial session saved: ${minutesCompleted} minutes added.`);
 
         // Sync partial session to server (best-effort)

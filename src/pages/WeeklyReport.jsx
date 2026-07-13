@@ -14,6 +14,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
+
+import { track } from "@/lib/analytics";
 import {
   Bar,
   CartesianGrid,
@@ -63,6 +65,7 @@ export default function WeeklyReport() {
       ]);
       setReport(currentRes.report);
       setHistory((historyRes.reports || []).slice().reverse());
+      track("report_view");
     } catch (err) {
       setError(err.message);
     } finally {

@@ -10,8 +10,10 @@ import {
   RotateCcw,
   Save,
   Settings,
+  ShieldAlert,
   User,
 } from "lucide-react";
+import { useClerk } from "@clerk/clerk-react";
 import { toast } from "sonner";
 
 import {
@@ -48,6 +50,8 @@ import {
   persistMyStudentProfile,
   setOnboardingComplete,
 } from "@/lib/onboarding";
+import { deleteMyAccount } from "@/lib/accountApi";
+import { track } from "@/lib/analytics";
 import {
   createSubject,
   fetchSubjects,
@@ -216,11 +220,34 @@ function SubjectRow({ subject, taskCount, onRename, onRecolor, onArchive, onRest
 
 export default function UserSettings() {
   const navigate = useNavigate();
+  const { signOut } = useClerk();
 
   // profile state
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+
+  // account deletion state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toLowerCase() !== "delete my account") return;
+    setDeleting(true);
+    try {
+      track("account_delete");
+      await deleteMyAccount();
+      toast.success("Your data has been deleted", {
+        description: "Signing you out now.",
+      });
+      await signOut();
+      navigate("/", { replace: true });
+    } catch (err) {
+      toast.error("Could not delete your account", { description: err.message });
+      setDeleting(false);
+    }
+  };
   // Raw loaded profile — kept so we can merge into nested study_preferences
   // on save without clobbering fields the user didn't edit.
   const [profileData, setProfileData] = useState(null);
@@ -749,6 +776,68 @@ export default function UserSettings() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Danger Zone */}
+      <Card className="border-red-500/30 bg-red-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base text-red-300">
+            <ShieldAlert className="h-4 w-4" />
+            Danger Zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            className="border-red-500/40 text-red-300 hover:bg-red-500/10 hover:text-red-200"
+            onClick={() => {
+              setDeleteConfirmText("");
+              setDeleteOpen(true);
+            }}
+          >
+            Delete my account and data
+          </Button>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Permanently deletes your tasks, notes, planner, focus history, and
+            AI conversations, and cancels any active subscription. This cannot
+            be undone. Your sign-in identity is removed separately — see the
+            Privacy Policy.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Delete account confirmation */}
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => !open && setDeleteOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently erases all of your data and cancels active
+              subscriptions. Type <span className="font-semibold text-foreground">delete my account</span> to
+              confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="delete my account"
+            aria-label="Type delete my account to confirm"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-500"
+              disabled={deleting || deleteConfirmText.trim().toLowerCase() !== "delete my account"}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteAccount();
+              }}
+            >
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Archive confirmation dialog */}
       <AlertDialog

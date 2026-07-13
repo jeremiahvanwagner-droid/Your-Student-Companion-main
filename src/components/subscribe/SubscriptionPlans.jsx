@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { track } from "@/lib/analytics";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import CurrentSubscriptionBanner from "@/components/subscribe/CurrentSubscriptionBanner";
@@ -56,6 +58,7 @@ export default function SubscriptionPlans() {
       }
 
       setCheckoutLoading(tier);
+      track("checkout_start", { kind: "subscription", tier, cadence });
       try {
         const baseUrl = `${window.location.origin}/app/subscribe`;
         const session = await createSubscriptionCheckoutSession({

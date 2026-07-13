@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -134,3 +136,62 @@ def test_owner_profile_routes_allow_authenticated_owner(client: TestClient, monk
 
     assert put_response.status_code == 200
     assert put_response.json()["profile"]["onboarding_completed"] is True
+
+
+# ── Account deletion (Market Thirteen #5) ────────────────────────────────
+
+class TestAccountDeletion:
+    def test_delete_me_requires_auth(self, client):
+        assert client.delete("/api/users/me").status_code == 401
+
+    def test_delete_me_cascades_and_reports(self, client):
+        app.dependency_overrides[get_app_auth_context] = _override_app_user
+        import routes.users as users_routes
+
+        table_mock = MagicMock()
+        result = MagicMock()
+        result.data = []
+        for method in ("select", "insert", "update", "delete", "eq", "in_", "limit"):
+            getattr(table_mock, method).return_value = table_mock
+        table_mock.execute.return_value = result
+        admin = MagicMock()
+        admin.table.return_value = table_mock
+
+        with patch.object(users_routes, "_admin_client", return_value=admin), \
+             patch.object(users_routes, "_cancel_stripe_subscriptions", return_value=1) as cancel:
+            resp = client.delete("/api/users/me")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deleted"] is True
+        assert body["stripe_subscriptions_cancelled"] == 1
+        cancel.assert_called_once()
+        # users row deleted
+        table_mock.delete.assert_called()
+
+    def test_delete_me_500_when_delete_fails(self, client):
+        app.dependency_overrides[get_app_auth_context] = _override_app_user
+        import routes.users as users_routes
+
+        admin = MagicMock()
+        calls = {"n": 0}
+
+        def table_side(name):
+            table_mock = MagicMock()
+            result = MagicMock()
+            result.data = []
+            for method in ("select", "insert", "update", "delete", "eq", "in_", "limit"):
+                getattr(table_mock, method).return_value = table_mock
+            if name == "users":
+                table_mock.execute.side_effect = RuntimeError("fk violation")
+            else:
+                table_mock.execute.return_value = result
+            return table_mock
+
+        admin.table.side_effect = table_side
+
+        with patch.object(users_routes, "_admin_client", return_value=admin), \
+             patch.object(users_routes, "_cancel_stripe_subscriptions", return_value=0):
+            resp = client.delete("/api/users/me")
+
+        assert resp.status_code == 500
