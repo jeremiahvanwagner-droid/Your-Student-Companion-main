@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { formatUsd } from "@/components/store/storeApi";
+import { isAndroidTwa } from "@/lib/platform";
 
 export default function PackDetail({
   pack,
@@ -67,6 +68,12 @@ export default function PackDetail({
                 <CheckCircle2 className="w-4 h-4" />
                 Unlocked
               </Button>
+            ) : isAndroidTwa() ? (
+              // Google Play payments policy: the Android app is
+              // consumption-only — no purchase flows, no external links.
+              <p className="max-w-[180px] text-right text-xs text-muted-foreground">
+                Purchases aren't available in this app.
+              </p>
             ) : (
               <Button onClick={() => onCheckout(pack)} disabled={checkoutLoading} className="gap-2">
                 {checkoutLoading ? (
