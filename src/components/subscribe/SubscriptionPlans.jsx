@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { track } from "@/lib/analytics";
+import { isAndroidTwa } from "@/lib/platform";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,6 +86,18 @@ export default function SubscriptionPlans() {
 
   if (isActive) {
     return <CurrentSubscriptionBanner />;
+  }
+
+  // Google Play payments policy: the Android TWA is consumption-only —
+  // no subscription checkout, no external purchase links.
+  if (isAndroidTwa()) {
+    return (
+      <Card className="border-border/40 bg-card/50">
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          Subscriptions aren't available in this app.
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
