@@ -46,3 +46,29 @@ services:
       # (routes/ai_mentor.py reads it at import; /api/ai/chat degrades when unset).
       - key: OPENAI_API_KEY
         sync: false
+      # Email layer (Market Thirteen #8). Absent RESEND_API_KEY = emails no-op.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "Your Student Companion <hello@ysc.growthbychoice.com>"
+      # Shared secret for POST /api/email/weekly-reset-run (cron trigger).
+      - key: CRON_SECRET
+        sync: false
+      # Public URL of this API — used to build unsubscribe links in emails.
+      - key: API_BASE_URL
+        sync: false
+
+  - type: cron
+    name: ysc-weekly-reset
+    runtime: image
+    image:
+      url: docker.io/curlimages/curl:latest
+    schedule: "0 23 * * 0"  # Sundays 23:00 UTC
+    dockerCommand: >-
+      curl -fsS -X POST -H "X-Cron-Token: $CRON_SECRET"
+      "$API_BASE_URL/api/email/weekly-reset-run"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: API_BASE_URL
+        sync: false

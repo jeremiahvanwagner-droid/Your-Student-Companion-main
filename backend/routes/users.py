@@ -55,6 +55,30 @@ def _admin_client():
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _send_welcome_email_best_effort(*, email: str, user_id: str) -> None:
+    """First-signup welcome (Market Thirteen #8). Never blocks resolve."""
+    try:
+        import os
+
+        from lib.email import send_email, welcome_email_html
+
+        if not email:
+            return
+        app_url = (os.getenv("FRONTEND_BASE_URL") or "https://ysc.growthbychoice.com").rstrip("/")
+        api_url = (os.getenv("API_BASE_URL") or "").rstrip("/") or app_url
+        send_email(
+            to=email,
+            subject="Welcome to Your Student Companion",
+            html=welcome_email_html(
+                None,
+                f"{app_url}/app",
+                f"{api_url}/api/email/unsubscribe?u={user_id}",
+            ),
+        )
+    except Exception:  # pylint: disable=broad-except
+        return
+
+
 def _parse_uuid_or_422(value: str, field_name: str) -> str:
     try:
         return str(UUID(str(value).strip()))
@@ -280,6 +304,11 @@ def resolve_user(
         entity_type="users",
         entity_id=app_user_id,
         metadata={"created": True, "clerk_user_id": clerk_user_id},
+    )
+
+    _send_welcome_email_best_effort(
+        email=(request.email or auth.email or "").strip().lower() or normalized_email,
+        user_id=app_user_id,
     )
 
     return ResolveUserResponse(user_id=app_user_id, clerk_user_id=clerk_user_id, created=True)
