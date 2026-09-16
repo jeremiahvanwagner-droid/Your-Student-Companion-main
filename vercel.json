@@ -5,7 +5,7 @@
   "outputDirectory": "build",
   "installCommand": "npm install --legacy-peer-deps",
   "rewrites": [
-    { "source": "/((?!static|manifest\\.json|favicon\\.ico|robots\\.txt|service-worker\\.js|logo.*\\.png).*)", "destination": "/index.html" }
+    { "source": "/((?!static|manifest\\.json|favicon\\.ico|robots\\.txt|service-worker\\.js|logo.*\\.png|\\.well-known).*)", "destination": "/index.html" }
   ],
   "headers": [
     {

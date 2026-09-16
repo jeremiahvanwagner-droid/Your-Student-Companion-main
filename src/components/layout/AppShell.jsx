@@ -5,8 +5,13 @@ import { UserButton, useAuth } from "@clerk/clerk-react";
 import BottomNav from "@/components/layout/BottomNav";
 import RemindersBell from "@/components/RemindersBell";
 import { cn } from "@/lib/utils";
+import { isAndroidTwa } from "@/lib/platform";
 
 const isClerkConfigured = Boolean(process.env.REACT_APP_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+
+// Store + Subscribe are hidden in the Android TWA build — Play's payments
+// policy makes it consumption-only (see src/lib/platform.js).
+const COMMERCE_ROUTES = new Set(["/app/store", "/app/subscribe"]);
 
 const MAIN_NAV = [
   { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -93,7 +98,9 @@ export default function AppShell() {
         <aside className="hidden w-60 shrink-0 lg:block">
           <div className="sticky top-20 rounded-xl border border-border/40 bg-card/40 p-3">
             <nav className="space-y-1">
-              {MAIN_NAV.map(({ to, label, icon: Icon }) => (
+              {MAIN_NAV.filter(
+                ({ to }) => !(isAndroidTwa() && COMMERCE_ROUTES.has(to))
+              ).map(({ to, label, icon: Icon }) => (
                 <NavLink
                   key={to}
                   to={to}

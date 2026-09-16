@@ -1,0 +1,51 @@
+{
+  "packageId": "com.growthbychoice.ysc",
+  "host": "ysc.growthbychoice.com",
+  "name": "Your Student Companion",
+  "launcherName": "Student Companion",
+  "display": "standalone",
+  "themeColor": "#64ffda",
+  "navigationColor": "#0a192f",
+  "navigationColorDark": "#0a192f",
+  "navigationDividerColor": "#0a192f",
+  "navigationDividerColorDark": "#0a192f",
+  "backgroundColor": "#0a192f",
+  "enableNotifications": false,
+  "startUrl": "/app?utm_source=twa",
+  "iconUrl": "https://ysc.growthbychoice.com/logo512.png",
+  "maskableIconUrl": "https://ysc.growthbychoice.com/logo512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "ysc-release"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "Add Task",
+      "shortName": "Tasks",
+      "url": "/app/tasks?utm_source=twa",
+      "chosenIconUrl": "https://ysc.growthbychoice.com/logo192.png"
+    },
+    {
+      "name": "Focus Mode",
+      "shortName": "Focus",
+      "url": "/app/focus?utm_source=twa",
+      "chosenIconUrl": "https://ysc.growthbychoice.com/logo192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://ysc.growthbychoice.com/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://ysc.growthbychoice.com/",
+  "minSdkVersion": 21,
+  "orientation": "portrait"
+}
