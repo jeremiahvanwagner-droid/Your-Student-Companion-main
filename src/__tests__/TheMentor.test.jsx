@@ -172,4 +172,22 @@ describe("TheMentor", () => {
     await userEvent.click(muteBtn);
     expect(mockToggleMic).toHaveBeenCalled();
   });
+
+  it("forwards is_minor=true to the chat API for a minor student", async () => {
+    const { sendMentorChat } = require("@/lib/aiMentorApi");
+    renderMentor({ isMinor: true });
+    await userEvent.type(screen.getByTestId("mentor-input"), "help me study");
+    await userEvent.click(screen.getByTestId("mentor-send-button"));
+    await waitFor(() => expect(sendMentorChat).toHaveBeenCalled());
+    expect(sendMentorChat.mock.calls[0][0]).toMatchObject({ is_minor: true });
+  });
+
+  it("defaults is_minor to false when the prop is omitted", async () => {
+    const { sendMentorChat } = require("@/lib/aiMentorApi");
+    renderMentor();
+    await userEvent.type(screen.getByTestId("mentor-input"), "hello");
+    await userEvent.click(screen.getByTestId("mentor-send-button"));
+    await waitFor(() => expect(sendMentorChat).toHaveBeenCalled());
+    expect(sendMentorChat.mock.calls[0][0]).toMatchObject({ is_minor: false });
+  });
 });

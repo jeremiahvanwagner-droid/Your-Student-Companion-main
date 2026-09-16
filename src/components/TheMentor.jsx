@@ -43,7 +43,7 @@ const saveChatHistory = (messages) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
 };
 
-const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }) => {
+const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [], isMinor = false }) => {
   const navigate = useNavigate();
   const [localMessages, setLocalMessages] = useState(getChatHistory());
   const [inputValue, setInputValue] = useState("");
@@ -143,6 +143,7 @@ const TheMentor = ({ userId = null, unlockedPacks = [], unlockedPackNames = [] }
         unlocked_packs: currentUnlocked,
         user_id: userId,
         voice_enabled: false,
+        is_minor: isMinor,
       });
       track("mentor_message");
 
