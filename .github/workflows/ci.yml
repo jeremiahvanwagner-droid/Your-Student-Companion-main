@@ -32,6 +32,22 @@ jobs:
         env:
           CI: true
 
+      # Plan §3.6 / §4-8. CRA inlines every REACT_APP_* value into the bundle, and a
+      # service-role key was once found inlined in a local build. This turns that into a
+      # hard failure. Neither pattern ships in any dependency we bundle (checked
+      # 2026-10-06: `sb_secret_` is in no node_modules package; `service_role` only in
+      # @supabase/auth-js, which nothing imports), so any hit is a real leak.
+      - name: Fail if a server-side secret pattern is in the bundle
+        run: |
+          set -euo pipefail
+          test -d build/static/js || { echo "::error::build/static/js missing — did the build run?"; exit 1; }
+          if hits="$(grep -rIlE 'sb_secret_|service_role' build/static/js)"; then
+            echo "::error::Server-side secret pattern (sb_secret_ / service_role) found in the frontend bundle:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "bundle clean: no sb_secret_ / service_role literal under build/static/js"
+
       - name: Run frontend tests with coverage
         run: npm run test:coverage
         env:
@@ -57,3 +73,106 @@ jobs:
         run: python -m pytest backend/tests/ -v --cov=backend --cov-report=term --cov-fail-under=25
         env:
           CI: true
+
+  # Plan §3.8 — proves that supabase/migrations/ + supabase/seed.sql build a working
+  # database from nothing, on the real Supabase stack (a bare postgres service cannot
+  # prove PostgREST grant behaviour). Required status check next to build + backend-test.
+  db-migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # Number of BASE TABLEs the migrations create in schema `public` (plan §3.2 / §8: 30).
+      # Bump it in the same PR as any migration that adds or drops a table.
+      EXPECTED_TABLE_COUNT: "30"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the `supabase` devDependency in package.json so `npx supabase` on a
+      # laptop and CI run the identical binary: the -x container names, the
+      # `status -o env` variable names and the lint flags below were all verified
+      # against this exact version. Bump both places together.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.76.8
+
+      # Only Postgres + the API gateway/PostgREST are needed. The CLI ≥2.x ships
+      # Mailpit (not Inbucket) as the mail catcher, hence `mailpit` in the list.
+      - name: Start local Supabase stack (db + api only)
+        run: supabase start -x studio,mailpit,edge-runtime,logflare,vector,imgproxy
+
+      - name: Apply supabase/migrations + supabase/seed.sql from scratch
+        run: supabase db reset
+
+      # `supabase status -o env` emits API_URL, DB_URL, ANON_KEY, SERVICE_ROLE_KEY (plus
+      # PUBLISHABLE_KEY / SECRET_KEY on this version). Only KEY=value lines are eval'd so a
+      # "Stopped services: …" notice can never break the step. Re-exported unquoted so
+      # later steps can read them from the `env` context.
+      - name: Export stack connection variables
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env | grep -E '^[A-Z0-9_]+=')"
+          for name in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do
+            : "${!name:?supabase status -o env did not emit $name}"
+            echo "$name=${!name}" >> "$GITHUB_ENV"
+          done
+          echo "API_URL=$API_URL"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies (runtime + dev)
+        run: pip install -r backend/requirements-dev.txt
+
+      # Same oracle that is run against ysc-prod after every `db push` — here it talks to
+      # the just-reset local stack through PostgREST with the local service-role key.
+      - name: Audit schema through PostgREST
+        env:
+          SUPABASE_URL: ${{ env.API_URL }}            # http://127.0.0.1:54321 unless config.toml moves the port
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SERVICE_ROLE_KEY }}
+        run: python backend/scripts/audit_supabase_schema.py --expect-project-ref local
+
+      # --level controls what is printed, --fail-on what exits non-zero: warnings are
+      # visible in the log, only errors fail the job.
+      - name: Lint database (plpgsql_check)
+        run: supabase db lint --level warning --fail-on error
+
+      # D2: Clerk-only identity. RLS on every table, zero policies, API roles denied,
+      # service_role granted. Asserted straight against Postgres so a future migration
+      # cannot quietly re-open the anon/authenticated path.
+      - name: Assert deny-all RLS posture and table count
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          q() { psql "$DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "$1"; }
+          fail=0
+          assert() {
+            local label="$1" expected="$2" actual="$3"
+            if [ "$actual" = "$expected" ]; then
+              echo "ok    $label = $actual"
+            else
+              echo "::error::$label: expected '$expected', got '$actual'"
+              fail=1
+            fi
+          }
+          assert "RLS policies in schema public"              0 "$(q "select count(*) from pg_policies where schemaname = 'public'")"
+          assert "public tables WITHOUT row security"         0 "$(q "select count(*) from pg_tables where schemaname = 'public' and not rowsecurity")"
+          assert "anon SELECT on public.users"                f "$(q "select has_table_privilege('anon', 'public.users', 'SELECT')")"
+          assert "authenticated SELECT on public.users"       f "$(q "select has_table_privilege('authenticated', 'public.users', 'SELECT')")"
+          assert "service_role SELECT on public.users"        t "$(q "select has_table_privilege('service_role', 'public.users', 'SELECT')")"
+          assert "anon EXECUTE on public.set_updated_at()"     f "$(q "select has_function_privilege('anon', 'public.set_updated_at()', 'EXECUTE')")"
+          assert "authenticated EXECUTE on set_updated_at()"   f "$(q "select has_function_privilege('authenticated', 'public.set_updated_at()', 'EXECUTE')")"
+          assert "service_role EXECUTE on set_updated_at()"    t "$(q "select has_function_privilege('service_role', 'public.set_updated_at()', 'EXECUTE')")"
+          assert "BASE TABLEs in schema public"               "$EXPECTED_TABLE_COUNT" "$(q "select count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'")"
+          exit "$fail"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          supabase status || true
+          docker ps -a || true

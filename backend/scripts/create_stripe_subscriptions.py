@@ -7,6 +7,10 @@ Usage:
   python backend/scripts/create_stripe_subscriptions.py
   python backend/scripts/create_stripe_subscriptions.py --dry-run
   python backend/scripts/create_stripe_subscriptions.py --force
+  python backend/scripts/create_stripe_subscriptions.py --live   # required for sk_live_ keys
+
+Prefer backend/scripts/relink_stripe_catalog.py when the Stripe account already
+holds the tier Products/Prices (decision D4).
 
 Reads pricing from subscription_plans (monthly_amount_cents,
 annual_amount_cents) and writes back stripe_product_id,
@@ -33,8 +37,11 @@ ROOT_DIR = BACKEND_DIR.parent
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
+from ysc_script_utils import stripe_key_guard_error
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +63,11 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Print intended actions without creating Stripe resources or writing to Supabase.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Allow running against a Stripe LIVE secret key (sk_live_...). Refused otherwise.",
     )
     return parser.parse_args()
 
@@ -148,6 +160,11 @@ def main() -> int:
         print("Error: STRIPE_SECRET_KEY is required unless --dry-run is used.")
         return 1
 
+    guard_error = stripe_key_guard_error(stripe_key, args.live)
+    if guard_error:
+        print(f"Error: {guard_error}")
+        return 1
+
     if stripe_key:
         stripe.api_key = stripe_key
 
@@ -160,7 +177,8 @@ def main() -> int:
     if not plans:
         print(
             "No active subscription_plans rows found. "
-            "Has the subscription_v1_schema migration been applied?"
+            "Apply supabase/migrations/ with `supabase db push` "
+            "(see docs/runbooks/database.md); the seed migration inserts the two tiers."
         )
         return 1
 

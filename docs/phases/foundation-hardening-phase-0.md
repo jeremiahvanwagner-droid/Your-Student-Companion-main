@@ -54,7 +54,7 @@
 ## Rollback Procedure
 
 - Revert the merge commit on `main`.
-- Roll back `backend/migrations/006_focus_migrations.sql` only if the migration was applied (`DROP TABLE IF EXISTS focus_migrations; ALTER TABLE subjects DROP COLUMN IF EXISTS archived;`).
+- Roll back `backend/migrations/006_focus_migrations.sql` (archived under `docs/archive/legacy-migrations/` since 2026-10-06; `focus_migrations` and `subjects.archived` now live in the baseline migration) only if the migration was applied (`DROP TABLE IF EXISTS focus_migrations; ALTER TABLE subjects DROP COLUMN IF EXISTS archived;`).
 - Re-deploy previous Vercel build via Vercel dashboard.
 
 ## Exit Criteria

@@ -67,7 +67,7 @@ from shipping silently — there's no reason to defer it.
 
 ### Why complete Step 7 before pivoting to new work
 
-Step 7's schema + catalog API are already live in `ysc-staging`. Stopping
+Step 7's schema + catalog API are already live in the Supabase project *(2026-10-06: that project was deleted; the 7 exam tables + NY Regents seed now live in `supabase/migrations/` behind `exams_enabled=false` — exam UI is deferred past beta)*. Stopping
 at Phase 7.2 strands sunk-cost work without the revenue surface that
 justifies it. Phases 7.3 → 7.8 close the loop. The Step 7 finish line
 is also the natural moment to pull the grandfather email forward (#5)

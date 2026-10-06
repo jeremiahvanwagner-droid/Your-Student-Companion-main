@@ -6,9 +6,13 @@ Render using the repo's `render.yaml` blueprint and `backend/Dockerfile`, then f
 the frontend to use it.
 
 ## 0. Prerequisites
-- ✅ Migrations applied to the Supabase project **in order**: `007_planner_blocks.sql`,
-  `008_private_is_admin.sql`, `009_reminders_reference_and_sm2.sql`
-  (done 2026-07-13, S-MIGRATE-001 — planner/reminders/SM-2 500 without them).
+- **G1 passed:** `supabase db push` done against `ysc-prod` (every file in
+  `supabase/migrations/`, nothing else) and the CI `db-migrate` job green on
+  `main` — see [database.md](database.md). The backend 500s on every route
+  without the schema, and the project that previously held it was deleted
+  (CURRENT_STATE.md S-INCIDENT-DB-001), so do not deploy ahead of G1.
+- PR-1 merged (`render.yaml` carries the env inventory below; the old
+  `SUPABASE_ANON_KEY` is gone).
 - Render account with GitHub access to this repo.
 
 ### Local image smoke test (optional but cheap)
@@ -29,11 +33,12 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 | `LOG_LEVEL` | | `INFO` (blueprint) |
 | `AI_DAILY_TOKEN_BUDGET` | | `50000` (blueprint) — per-user daily OpenAI token ceiling; `0` disables |
 | `CORS_ALLOWED_ORIGINS` | | prod + vercel domains (blueprint; comma-separated, no spaces) |
-| `SUPABASE_URL` | | Supabase dashboard → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | 🔒 | Supabase dashboard (service role — backend only, never frontend) |
-| `SUPABASE_ANON_KEY` | 🔒 | Supabase dashboard |
+| `SUPABASE_URL` | | Supabase dashboard → Project Settings → API (`ysc-prod`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | 🔒 | Supabase dashboard → API keys → the `sb_secret_…` key (backend only, never frontend; the only role the schema grants) |
+| `SUPABASE_PROJECT_REF` | | the `ysc-prod` project ref — `audit_supabase_schema.py --expect-project-ref` asserts `SUPABASE_URL` matches it, so the backend can never be pointed at the wrong project silently |
 | `REACT_APP_CLERK_PUBLISHABLE_KEY` | 🔒 | Clerk dashboard (backend derives the issuer from it) |
 | `CLERK_ISSUER` | 🔒 | Clerk dashboard → API → Frontend API URL (explicit override; preferred in prod) |
+| `CLERK_SECRET_KEY` | 🔒 | Clerk dashboard → API keys — Backend API calls (server-side age gate writes `publicMetadata`, account deletion removes the Clerk user; plan §4-5/§4-7) |
 | `STRIPE_SECRET_KEY` | 🔒 | Stripe dashboard (Test now; swap at Live cutover, item #3) |
 | `STRIPE_WEBHOOK_SECRET` | 🔒 | Stripe webhook destination config |
 | `SENTRY_DSN` | 🔒 | Sentry project settings |
@@ -44,8 +49,10 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 | `RESEND_API_KEY` | 🔒 | Resend dashboard — email layer (welcome + weekly reset). Absent = emails silently no-op |
 | `EMAIL_FROM` | | verified sender, e.g. `Your Student Companion <hello@ysc.growthbychoice.com>` (verify the domain in Resend first) |
 | `CRON_SECRET` | 🔒 | any long random string; shared between the API service and the `ysc-weekly-reset` cron job (blueprint) which POSTs `/api/email/weekly-reset-run` Sundays 23:00 UTC |
-| `API_BASE_URL` | | this service's public URL — builds unsubscribe links in outbound email |
-| Optional: `CLERK_JWKS_URL`, `CLERK_JWT_AUDIENCE`, `FRONTEND_BASE_URL`, `SENTRY_RELEASE` | | only if overriding defaults (`RENDER_GIT_COMMIT` already feeds the release tag) |
+| `API_BASE_URL` | | this service's public URL — builds unsubscribe links in outbound email (email refuses to start when `RESEND_API_KEY` is set and this is not) |
+| `FRONTEND_BASE_URL` | | `https://ysc.growthbychoice.com` — Stripe success/cancel/portal return URLs are validated against this origin (no open redirect) |
+| `FORWARDED_ALLOW_IPS` | | `*` (blueprint) — uvicorn trusts Render's `X-Forwarded-For`, so rate limits key on the real client IP instead of the proxy |
+| Optional: `CLERK_JWKS_URL`, `CLERK_JWT_AUDIENCE`, `SENTRY_RELEASE` | | only if overriding defaults (`RENDER_GIT_COMMIT` already feeds the release tag) |
 
 ## 2. Deploy
 1. Render → **New → Blueprint** → select this repo (`render.yaml` auto-detected).
@@ -54,12 +61,25 @@ marked 🔒 are prompted by the blueprint (`sync: false`) — never commit them.
 
 ## 3. Smoke test (before touching the frontend)
 ```bash
-curl -s https://<service>/health           # → {"status":"healthy"}
+curl -s https://<service>/health           # → {"status":"healthy"}  (static liveness)
+curl -s https://<service>/api/health/ready # → {"db":"ok"}          (touches feature_flags; 503 if the DB is unreachable)
 curl -s https://<service>/api/             # → endpoint directory JSON
 curl -s -o /dev/null -w "%{http_code}" \
   https://<service>/api/tasks              # → 401 (auth enforced, not 500)
 ```
 Confirm a JSON log line per request in Render logs and an `X-Request-ID` response header.
+
+## 3a. Create the Stripe webhook destination
+The FastAPI route is the only Stripe webhook (decision D5 — the Supabase Edge
+function is gone, and the May 2026 destination pointed at the deleted project).
+1. Stripe Dashboard (Test mode through beta) → Developers → Webhooks → **Add
+   destination** → `https://<service>/api/webhooks/stripe` → the 7 events in
+   [backend/STORE_WEBHOOK_RUNBOOK.md §6](../../backend/STORE_WEBHOOK_RUNBOOK.md).
+2. Copy the new `whsec_…` into Render → service → Environment →
+   `STRIPE_WEBHOOK_SECRET` (the service redeploys).
+3. Disable/delete the old `…supabase.co/functions/v1/stripe-webhook` destination.
+4. Stripe → destination → **Send test event** → 200 in Render logs. Then
+   `python backend/scripts/validate_stripe_webhook.py` → `PASS`.
 
 ## 4. Flip the frontend
 1. Vercel → Project → Settings → Environment Variables →
@@ -69,8 +89,11 @@ Confirm a JSON log line per request in Render logs and an `X-Request-ID` respons
    Render host, no CORS errors).
 
 ## 5. Monitoring
-1. Better Stack → new monitor on `https://<service>/api/health`, 3-min interval,
-   alert after 2 failures (same policy as the frontend monitor).
+1. Better Stack → new monitor on `https://<service>/api/health/ready`, 3-min
+   interval, **keyword match `"db":"ok"`**, alert after 2 failures. This is the
+   probe that would have caught the July 2026 project deletion; the static
+   `/health` cannot. Add a second monitor on `https://ysc.growthbychoice.com`
+   (today only the `*.vercel.app` URL is watched).
 2. Sentry → confirm a deliberate test error from the backend arrives tagged with
    `request_id` and `environment=production`.
 

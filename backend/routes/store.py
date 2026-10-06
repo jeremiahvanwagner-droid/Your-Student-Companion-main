@@ -116,7 +116,8 @@ def _ensure_purchase_tables_ready(admin_client) -> None:
             status_code=503,
             detail=(
                 "Store purchase tables are not installed in Supabase. "
-                "Run backend/migrations/003_store_payment_bootstrap.sql in SQL Editor."
+                "Apply supabase/migrations/ with `supabase db push` "
+                "(see docs/runbooks/database.md)."
             ),
         ) from exc
 

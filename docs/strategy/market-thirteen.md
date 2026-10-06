@@ -50,7 +50,7 @@ Total focused build effort ≈ **4–5 engineer-weeks**, run over **~8 calendar 
 **Acceptance:** `curl https://api.<domain>/health` returns healthy; signing in on production loads dashboard stats with zero 5xx in Sentry for 24 h; Better Stack green.
 
 ### 2 · 🛡 Apply pending DB migrations + close security advisors
-**Why:** Migrations `007_planner_blocks`, `008_private_is_admin`, `009_reminders_reference_and_sm2` are authored but **not applied** to `ysc-staging`. Planner/reminders/SM-2 500 against the live DB until 007/009 land; 008 closes the `is_admin()` API-exposure advisor. Leaked-password protection is still OFF (one dashboard toggle).
+**Why:** Migrations `007_planner_blocks`, `008_private_is_admin`, `009_reminders_reference_and_sm2` are authored but **not applied** to the Supabase project. *(2026-10-06: superseded — they were applied 2026-07-13, the project was then deleted, and the schema now lives in `supabase/migrations/` applied via `supabase db push`; see `docs/runbooks/database.md`.)* Planner/reminders/SM-2 500 against the live DB until 007/009 land; 008 closes the `is_admin()` API-exposure advisor. Leaked-password protection is still OFF (one dashboard toggle).
 
 **Implementation:** apply 007 → 008 → 009 in order via Supabase MCP/CLI; flip leaked-password protection ON; re-run `get_advisors(security)` and confirm zero WARNs; add a CI note that migration files must be applied before the deploy that needs them (runbook entry).
 

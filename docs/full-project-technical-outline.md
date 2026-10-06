@@ -1,10 +1,12 @@
 # Your Student Companion (YSC) — Reconciled Technical Outline
 
+> **Provenance note — 2026-10-06.** The Supabase project this document describes as live (`ysc-staging`) was **deleted between 2026-07-22 and 2026-07-28**; the schema it referenced in `backend/migrations/` plus the MCP-applied migrations are gone and have been **rebuilt as schema-as-code in `supabase/migrations/`** (baseline `20261006000000_baseline.sql` + seed files; decisions D1–D8 in `CURRENT_STATE.md`). Identity is now Clerk-only with deny-all RLS; the Edge-function webhook is deleted; beta is free on Stripe Test; messaging is cut and exam UI / voice are deferred. **This document is superseded by `docs/scope/ysc-full-scope-v2.md`** (to be written in Phase 3 — see [`docs/scope/README.md`](scope/README.md)). Only the factual errors that the deletion exposed were corrected below; treat everything else as a 2026-07-13 snapshot.
+>
 > **Document status — READ THIS FIRST**
 >
 > **Provenance:** The first draft of this outline was AI-generated (Perplexity) by pointing a model at the YSC GitHub repository. As a result ~80% of it described the project *back to itself*, and several sections restated **proposals that had already shipped** or **contradicted decisions that were already locked**. This version was reconciled against the actual codebase on **2026-07-13** by a full-repo audit.
 >
-> **How to use it:** Treat this as the product/architecture north-star (a PRD-grade reference), **not** as build instructions. Where this doc and the code disagree, the **code and `backend/migrations/` win**. The single live status tracker is [`CURRENT_STATE.md`](../CURRENT_STATE.md); the long-form plan is [`YSC_ROADMAP.md`](../YSC_ROADMAP.md).
+> **How to use it:** Treat this as the product/architecture north-star (a PRD-grade reference), **not** as build instructions. Where this doc and the code disagree, the **code and `supabase/migrations/` win**. The single live status tracker is [`CURRENT_STATE.md`](../CURRENT_STATE.md); the long-form plan is [`YSC_ROADMAP.md`](../YSC_ROADMAP.md).
 >
 > **Corrections applied in this version** (things the AI draft got wrong):
 > 1. **Pricing** — draft said 3 tiers at $9.99/$19.99. Actual **locked** model is 2 paid tiers: **Degree Bundle $7.99/mo** and **All-Access $14.99/mo**, plus a 14-day trial, one-time packs, and lifetime grandfathering. Live tier constants in code are `degree_bundle` / `all_access`.
@@ -23,7 +25,7 @@ Your Student Companion (YSC) is a **web-first** (PWA-capable) learning-productiv
 
 The core stack is **React 19 (CRA + Craco)** on the frontend, **FastAPI (Python 3.11)** on the backend, **Supabase (PostgreSQL + RLS)** for data, **Clerk** for auth, **Stripe** for subscriptions, **Sentry** for error tracking, **Better Stack** for uptime, and **PostHog** for analytics (enrolled, wiring pending). Frontend is deployed on **Vercel** (live, custom domain); the backend is packaged for **Render** (Dockerfile + `render.yaml` ready; service not yet created).
 
-**What is actually live/built** (not aspirational): auth + onboarding, dashboard, AI mentor, course-pack store with Stripe one-time + subscription checkout, notes, SM-2 review cards, study planner, weekly report, focus timer, in-app reminders, task manager. Backend carries **156 tests at ~78% coverage**; frontend **96 tests**; CI with branch protection is active on `main`.
+**What is actually live/built** (not aspirational): auth + 13+ age gate + onboarding, dashboard, AI mentor (with a minor-safety prompt), course-pack store with Stripe one-time + subscription checkout, notes, SM-2 review cards, study planner, weekly report, focus timer, in-app reminders, task manager, PostHog analytics wiring, Resend email layer, PWA service worker, legal pages + account deletion. Backend carries **156 tests at ~78% coverage**; frontend **96 tests**; CI with branch protection is active on `main`.
 
 **Immediate critical path** (from the Seven Advancements plan): backend deploy on Render → Sentry env vars in Vercel → Supabase leaked-password toggle → credential cutover → beta cohort. See [`docs/advancements/00-executive-summary.md`](advancements/00-executive-summary.md).
 
@@ -57,7 +59,7 @@ YSC serves students across three bands. **Launch scope is 13+.**
 | Auth UI | Clerk React (`@clerk/clerk-react` v5) | Sign-in/up, user profile |
 | Error tracking | `@sentry/react` v10 | Boot init, ErrorBoundary, PII scrubbing |
 | Charts | Recharts v3 | Weekly report, score history |
-| Analytics | PostHog (`posthog-js`) | **Enrolled; wiring pending** (not yet in code) |
+| Analytics | PostHog (`posthog-js`) | Wired in code (`src/lib/analytics.js`, M13-IMPL-006); no-op until `REACT_APP_POSTHOG_KEY` is set in Vercel |
 | Build config | Craco | CRA override; source-map upload to Sentry on prod builds |
 
 ### 2.2 Pages (actual — `src/pages/*.jsx`)
@@ -66,8 +68,8 @@ YSC serves students across three bands. **Launch scope is 13+.**
 
 ### 2.3 To-build frontend gaps (from the reconciliation)
 
-- **`<AgeGate />`** — age confirmation at sign-up that blocks under-13 (required to enforce the 13+ launch decision). *Not yet in code.*
-- **`<PostHogProvider />`** — analytics wiring (enrolled vendor, not yet wired).
+- **`<AgeGate />`** — ✅ shipped 2026-07-13 (`src/components/AgeGate.jsx`, `src/lib/ageGate.js`, commit `febd795`). Still client-side only (writes Clerk `unsafeMetadata`); the server-side gate (`POST /api/users/me/age-gate` → `publicMetadata`, 403 on `/api/*` for under-13/missing) is plan §4-5, gate G3.
+- **PostHog** — ✅ wired (`src/lib/analytics.js`); only the Vercel key is pending.
 - Exam **practice runner** UI — Step 7 test-prep module is paused at Phase 7.2.
 
 ---
@@ -97,25 +99,25 @@ Spaced repetition uses a full **SM-2** implementation in `routes/notes.py` (ease
 
 ### 3.3 AI Mentor (actual)
 
-Single-call design: request → Clerk auth → OpenAI chat completion (`gpt-4.1-mini`) → response (voice via ElevenLabs when requested). **Gap to add:** an age-safety system prompt injected when the user's grade band indicates a minor. Cheap, high-value, adopt regardless of the COPPA timeline.
+Single-call design: request → Clerk auth → OpenAI chat completion (`gpt-4.1-mini`) → response (voice via ElevenLabs when requested). The age-safety system prompt for minors **shipped 2026-07-13** (`MINOR_SAFETY_PROMPT` in `routes/ai_mentor.py`, commit `126f9e9`). Remaining mentor hardening (ignore client `unlocked_packs`, `max_tokens`, per-tier budget that fails closed, report button) is plan §4-10, gate G3.
 
 ---
 
 ## 4. Database Architecture (Supabase / PostgreSQL)
 
-**Source of truth is [`backend/migrations/`](../backend/migrations/)** — this section is illustrative, not literal DDL.
+**Source of truth is [`supabase/migrations/`](../supabase/migrations/)** (baseline `20261006000000_baseline.sql` + four seed migrations; `backend/migrations/` is archived under `docs/archive/legacy-migrations/` and must never be applied) — this section is illustrative, not literal DDL.
 
 ### 4.1 Identity & multi-tenancy
 
-Single shared Postgres with **Row-Level Security** on every user-scoped table. **Identity is Clerk-based**: the `users` row is anchored to `clerk_id` (a hybrid baseline established by migrations 003 "compat" + 004 "reconcile"), **not** the Supabase-Auth `auth.users` FK the AI draft assumed. RLS policies scope rows to the authenticated user; an `is_admin()` helper lives in the private `app_private` schema (migration 008) so it is not callable via PostgREST.
+Single shared Postgres. **Identity is Clerk-only (decision D2, 2026-10-06):** `users.id` is an app-generated uuid anchored to `clerk_id text unique` — there is **no** `auth.users` FK, no shadow Supabase-Auth user, and Supabase Auth sign-ups are disabled. RLS is **enabled on every public table with no policies**: `anon` / `authenticated` are denied everything, only `service_role` is granted, and authorization is enforced in FastAPI by `user_id` filters. There is no `is_admin()` function or `app_private` schema any more; `users.role` (`student` / `admin`) is set by a documented SQL statement.
 
-### 4.2 Migration ledger (applied to `ysc-staging`)
+### 4.2 Migration ledger (`supabase/migrations/`, applied only via `supabase db push`)
 
-`0001` init schema · `001`/`002` academic + course-pack seeds · `003` store/payment bootstrap · `004` reconcile-from-compat · `005` purchase identity UUID align · `006` focus · `007` planner_blocks · `008` private `is_admin()` · `009` reminders `reference_id` + SM-2 columns. **007/008/009 applied 2026-07-13** — the long-standing migration blocker is cleared.
+`20261006000000_baseline` (whole schema, one transaction) · `..000100_seed_catalog` (4 levels / 14 degree plans / 56 packs, idempotent upserts) · `..000200_seed_subscription_plans` (2 tiers, Stripe ids filled by `relink_stripe_catalog.py`) · `..000300_seed_feature_flags` (`store_enabled`, `exams_enabled`, `voice_enabled`, `mentor_enabled`, `email_enabled`) · `..000400_seed_exams_regents_algebra_i`. The pre-rebuild ledger (`0001`…`009` in `backend/migrations/`, plus four MCP-only migrations that were never committed) was lost with the project in July 2026 and is kept for history only.
 
 ### 4.3 Core tables (illustrative)
 
-`users`, `subscriptions`, `user_purchases` (with `lifetime_access` grandfathering flag), `exams`, `questions`, `practice_sessions`, `flashcard_decks`/`review_cards`, `notes`, `tasks`, `planner_blocks`, `reminders`, `mentor_conversations`/`mentor_messages`, `focus_sessions`. A `parental_consent_log` table is **future** (COPPA workstream), not part of the 13+ launch.
+30 tables. Identity: `users`. Catalog + commerce (bigint identity): `academic_levels`, `degree_plans`, `course_packs`, `content_items`, `subscription_plans`, `user_purchases` (with `lifetime_access`), `user_subscriptions`, `stripe_webhook_events`. Student-owned (uuid): `student_profiles`, `subjects`, `assignments`, `study_sessions`, `focus_logs`, `focus_migrations`, `notes`, `review_cards`, `weekly_reports`, `reminders`, `ai_interactions`, `planner_blocks`, `audit_logs`, `feature_flags`. Exams (7, behind `exams_enabled=false`): `exams`, `exam_sections`, `exam_passages`, `exam_questions`, `exam_attempts`, `exam_attempt_responses`, `course_pack_exams`. A `parental_consents` table is **future** (COPPA workstream), not part of the 13+ launch.
 
 ---
 
@@ -127,11 +129,11 @@ Single shared Postgres with **Row-Level Security** on every user-scoped table. *
 
 ## 6. Integrations
 
-- **Stripe** — 2 paid tiers (Degree Bundle **$7.99/mo**, All-Access **$14.99/mo**), annual cadences, 14-day trial, one-time packs, lifetime grandfathering. **Live in Test mode**; webhook destination configured; promotion to Live deferred to post-QA.
+- **Stripe** — 2 paid tiers (Degree Bundle **$7.99/mo**, All-Access **$14.99/mo**), annual cadences, 14-day trial, one-time packs, `lifetime_access` kept (no real buyers ever existed; grandfather email dropped). **Test mode through the free beta (D6)**; the May 2026 webhook destination is dead (it targeted the deleted project) and is recreated against the FastAPI route on Render; Live cutover Jan 2027.
 - **Sentry** — frontend + backend wired (PR #7 landed); activates in prod once four env vars are set in Vercel.
 - **Better Stack** — uptime monitor live on the Vercel URL; backend `/api/health` monitor pending the Render deploy.
-- **PostHog** — vendor enrolled; **code wiring not started.** COPPA note applies only once under-13 users exist.
-- **Resend** — API key live; transactional/grandfather email wiring pending.
+- **PostHog** — vendor enrolled and **code wiring shipped** (M13-IMPL-006); the project key is not yet in Vercel. COPPA note applies only once under-13 users exist.
+- **Resend** — **code wiring shipped** (PR #16: welcome + weekly reset + unsubscribe); `RESEND_API_KEY` deliberately unset until gate G3. Grandfather email dropped (D7).
 - **OpenAI + ElevenLabs** — AI mentor text + voice (see §3.3).
 - **Internships** — parked future phase (manual + university-partner sourcing per roadmap §13).
 
@@ -152,7 +154,7 @@ Single shared Postgres with **Row-Level Security** on every user-scoped table. *
                           ↓ API calls (Clerk JWT)
                      [Render → FastAPI]                   (Dockerfile ready; service TBD)
                           ↓
-                     [Supabase Postgres + RLS + Storage]  (LIVE staging)
+                     [Supabase Postgres — ysc-prod]        (deleted July 2026; rebuilt at G1)
                           ↓
                      [OpenAI / ElevenLabs]
 ```
@@ -204,7 +206,7 @@ The authoritative sequencing lives in [`CURRENT_STATE.md`](../CURRENT_STATE.md) 
 | Timeline slip (solo dev, at-risk date) | 🔴 High | Seven Advancements re-sequencing; defer non-critical scope |
 | Backend not yet deployed | 🔴 High | Render Dockerfile ready; deploy is critical-path item #1 |
 | Content licensing (ACT/AP) stalls test prep | 🟡 Med | Original SHSAT/HSPT authoring as fallback; test-prep is paused, not blocking |
-| Supabase RLS misconfig leaks data | 🟡 Med | 23 policies + `is_admin()` moved to `app_private`; leaked-password toggle is the last open advisor |
+| Supabase RLS misconfig leaks data | 🟡 Med | RLS enabled everywhere with **no policies** (deny-all for API roles); backend uses `service_role` and filters by `user_id`; CI asserts zero policies + no `anon` privileges |
 | AI mentor safety for minors | 🟡 Med | Age-safety system prompt (to add); 13+ gate limits exposure |
 | COPPA exposure if under-13 slips through | 🟡 Med | Hard age gate at signup; parental portal deferred with counsel |
 | PostHog/analytics PII for minors | 🟢 Low | Not wired yet; gate before any under-13 audience opens |

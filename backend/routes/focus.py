@@ -61,9 +61,11 @@ def _parse_uuid(value: str, field_name: str) -> str:
         ) from exc
 
 
+# study_sessions has no created_at column (supabase/migrations/20261006000000_baseline.sql);
+# started_at is the creation timestamp and the ordering column (indexed with user_id).
 SESSION_COLUMNS = (
     "id,user_id,subject_id,intention,duration_planned_minutes,"
-    "duration_actual_minutes,reflection,session_type,started_at,completed_at,created_at"
+    "duration_actual_minutes,reflection,session_type,started_at,completed_at"
 )
 
 LOG_COLUMNS = (
@@ -87,7 +89,7 @@ async def list_sessions(
         admin.table("study_sessions")
         .select(SESSION_COLUMNS)
         .eq("user_id", auth.app_user_id)
-        .order("created_at", desc=True)
+        .order("started_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
         .data
