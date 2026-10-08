@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import os
 import sys
@@ -41,6 +42,8 @@ def _configure_structured_logging() -> None:
 _configure_structured_logging()
 init_sentry()
 
+logger = logging.getLogger(__name__)
+
 
 def _allowed_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOWED_ORIGINS") or os.getenv("FRONTEND_BASE_URL")
@@ -61,22 +64,47 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Per-request id middleware. Registered before CORS so the id is available
-# on preflight responses too — and so Sentry events captured anywhere
-# downstream already carry the request_id tag.
-app.add_middleware(RequestIdMiddleware)
-
-# CORS configuration
+# CORS configuration. Registered BEFORE RequestIdMiddleware so that — under
+# Starlette's reverse-stack semantics (last add_middleware runs first) —
+# RequestIdMiddleware ends up outermost and runs on every request,
+# including the CORS-handled OPTIONS preflight. Without that ordering CORS
+# would short-circuit preflight before request_id is generated, leaving
+# preflight responses without an X-Request-ID header and Sentry events
+# without the request_id tag.
+#
+# X-Request-ID must be in allow_headers so cross-origin browser clients
+# can propagate their own request id; without it CORS preflight rejects
+# the header and the backend always generates a new id, breaking
+# end-to-end correlation.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "X-Request-ID",
+    ],
     expose_headers=["X-Request-ID"],
 )
 
-# Import and include routers
+# Per-request id middleware. Added LAST so the Starlette stack puts it
+# outermost — runs first on every request (including CORS preflight) and
+# wraps every other middleware + handler in the request_id Sentry scope.
+app.add_middleware(RequestIdMiddleware)
+
+# Import and include routers.
+#
+# lib.supabase_client runs load_dotenv(backend/.env) at import time, so it
+# must stay below init_sentry(): imported any earlier it would feed
+# backend/.env into the environment init_sentry() reads and turn every
+# local pytest/uvicorn run into a Sentry reporter whenever that file
+# carries a DSN. The routes import the same module from here already.
+from lib.supabase_client import get_supabase_admin_client
 from routes.ai_mentor import router as ai_mentor_router
 from routes.store import router as store_router
 from routes.webhooks import router as webhooks_router
@@ -109,11 +137,78 @@ app.include_router(email_ops_router)
 # ============================================
 # HEALTH CHECK ENDPOINTS
 # ============================================
-# Kubernetes liveness/readiness probes expect /health at root level
+# Liveness (/health) is static and cheap: Render's healthCheckPath and the
+# Dockerfile HEALTHCHECK hit it, and it must keep answering 200 while the
+# database is down so the platform does not restart a healthy process.
+# Readiness (/api/health/ready) proves the service can reach the database;
+# the uptime monitor watches it for the "db":"ok" keyword.
+#
+# Both are exempt from rate limiting: uptime monitors and platform probes
+# share a handful of source IPs and would otherwise trip the default limit
+# once SlowAPIMiddleware is enabled.
+
+
 @app.get("/health")
+@limiter.exempt
 async def kubernetes_health_check():
-    """Health check endpoint for Kubernetes probes (no /api prefix)"""
+    """Liveness probe (no /api prefix) — static, never touches the DB."""
     return {"status": "healthy"}
+
+
+# Hard ceiling for the readiness probe. The Supabase client's own HTTP
+# timeout is far longer (120s by default), so without this a hung database
+# would hang the probe and the monitor would see a timeout instead of a 503.
+READY_TIMEOUT_SECONDS = 2.0
+
+# Dedicated, bounded executor so a stalled probe can never starve Starlette's
+# shared threadpool. A probe that outlives READY_TIMEOUT_SECONDS keeps its
+# worker busy until the HTTP call returns on its own; two workers absorb that
+# while the next probe still gets a prompt answer.
+_ready_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="health-ready"
+)
+
+
+def _probe_database() -> None:
+    """
+    Cheapest possible round-trip through PostgREST with the service-role
+    client: one row id from feature_flags (seeded by the baseline migration;
+    an empty table still answers 200). Raises on any failure.
+    """
+    admin = get_supabase_admin_client()
+    admin.table("feature_flags").select("id").limit(1).execute()
+
+
+@app.get("/api/health/ready")
+@limiter.exempt
+def api_readiness_check():
+    """
+    Readiness probe — 200 {"status":"ready","db":"ok"} when the database
+    answers within READY_TIMEOUT_SECONDS, else 503 {"status":"not_ready",
+    "db":"error"}. Deliberately a plain `def`: FastAPI runs it on the
+    threadpool, so the blocking wait below never stalls the event loop.
+    Failure detail goes to the logs/Sentry breadcrumbs only — never to the
+    client.
+    """
+    future = _ready_executor.submit(_probe_database)
+    try:
+        future.result(timeout=READY_TIMEOUT_SECONDS)
+    except Exception:  # any DB/config failure means "not ready"; detail stays server-side
+        if not future.done():
+            # Still queued or running past the deadline: a wait timeout,
+            # not a probe failure. Cancel drops it if it never started; a
+            # running probe cannot be interrupted and finishes on its own.
+            future.cancel()
+            logger.warning(
+                "readiness probe timed out",
+                extra={"timeout_seconds": READY_TIMEOUT_SECONDS},
+            )
+        else:
+            logger.warning("readiness probe failed", exc_info=True)
+        return JSONResponse(
+            status_code=503, content={"status": "not_ready", "db": "error"}
+        )
+    return {"status": "ready", "db": "ok"}
 
 
 @app.get("/api/health")
@@ -124,7 +219,6 @@ async def api_health_check():
         "services": {
             "api": "operational",
             "ai_mentor": "openai_or_fallback",
-            "voice": "elevenlabs_conversational_ai",
             "store": "supabase_stripe",
         },
     }
@@ -161,5 +255,6 @@ async def root():
             "reminders": "/api/reminders",
             "reminders_sync": "/api/reminders/sync",
             "health": "/health",
+            "health_ready": "/api/health/ready",
         },
     }

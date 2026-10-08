@@ -13,6 +13,9 @@ services:
     dockerContext: ./backend
     plan: starter
     region: ohio
+    # Liveness only (static, never touches the DB). Readiness with a real
+    # database round-trip is GET /api/health/ready — point the uptime
+    # monitor at that one (keyword "db":"ok").
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -24,15 +27,34 @@ services:
         value: "50000"
       - key: CORS_ALLOWED_ORIGINS
         value: https://ysc.growthbychoice.com,https://your-student-companion-main.vercel.app
+      # Public origin of the SPA. Routes build browser-facing links from it
+      # (Stripe checkout/portal return URLs in routes/store.py, email links in
+      # routes/users.py and routes/email_ops.py); server.py also falls back
+      # to it for CORS when CORS_ALLOWED_ORIGINS is unset.
+      - key: FRONTEND_BASE_URL
+        value: https://ysc.growthbychoice.com
+      # Supabase: service-role only (decision D2 — Clerk is the sole identity
+      # provider; RLS is deny-all for anon/authenticated). The backend has no
+      # anon client any more, so there is no SUPABASE_ANON_KEY.
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: SUPABASE_ANON_KEY
+      # Project ref this service must talk to (the <ref> in
+      # https://<ref>.supabase.co). lib/supabase_client.py refuses to build a
+      # client when SUPABASE_URL points anywhere else — the guard against a
+      # stale URL aimed at a deleted project. Env-based on purpose:
+      # supabase/config.toml is not in the image (dockerContext is ./backend).
+      - key: SUPABASE_PROJECT_REF
         sync: false
       - key: REACT_APP_CLERK_PUBLISHABLE_KEY
         sync: false
       - key: CLERK_ISSUER
+        sync: false
+      # Clerk Backend API key (sk_...). The server-side age gate writes Clerk
+      # publicMetadata with it and account deletion removes the Clerk user
+      # (plan §4-5 / §4-7). Backend-only: never under a REACT_APP_ name.
+      - key: CLERK_SECRET_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
@@ -57,6 +79,13 @@ services:
       # Public URL of this API — used to build unsubscribe links in emails.
       - key: API_BASE_URL
         sync: false
+      # uvicorn honours X-Forwarded-For / X-Forwarded-Proto only from these
+      # client IPs (default: 127.0.0.1). The container is reachable only
+      # through Render's proxy, so every hop is trusted. Without this the
+      # rate limiter keys every request on the proxy's address and request
+      # logs never see the real client IP.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
 
   - type: cron
     name: ysc-weekly-reset
@@ -64,9 +93,13 @@ services:
     image:
       url: docker.io/curlimages/curl:latest
     schedule: "0 23 * * 0"  # Sundays 23:00 UTC
+    # Wrapped in `sh -c` so a shell expands $CRON_SECRET and $API_BASE_URL.
+    # The bare command was handed to the image's entrypoint, which execs its
+    # arguments verbatim — the literal string "$CRON_SECRET" went over the
+    # wire. The curl image is Alpine-based and ships /bin/sh.
     dockerCommand: >-
-      curl -fsS -X POST -H "X-Cron-Token: $CRON_SECRET"
-      "$API_BASE_URL/api/email/weekly-reset-run"
+      sh -c 'curl -fsS -X POST -H "X-Cron-Token: $CRON_SECRET"
+      "$API_BASE_URL/api/email/weekly-reset-run"'
     envVars:
       - key: CRON_SECRET
         sync: false

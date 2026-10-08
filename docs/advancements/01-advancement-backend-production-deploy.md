@@ -110,7 +110,7 @@ docker run --rm -p 8000:8000 --env-file .env ysc-api
 curl -s http://localhost:8000/health   # expect {"status":"healthy"}
 ```
 
-**7. Render setup (dashboard):** New Web Service → connect the GitHub repo → root directory `backend`, runtime Docker, region **us-east** (matches Supabase `ysc-staging`), health check path `/health`, auto-deploy on `main`. Set env vars (values from `backend/.env` — never commit them): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SENTRY_DSN`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESEND_API_KEY`, `LOG_LEVEL=INFO`, and:
+**7. Render setup (dashboard):** New Web Service → connect the GitHub repo → root directory `backend`, runtime Docker, region **Ohio / us-east-2** (matches Supabase `ysc-prod`; `render.yaml` carries `region: ohio` — the May 2026 wording "us-east, matches `ysc-staging`" referred to the project deleted in July 2026), health check path `/health`, auto-deploy on `main`. Set env vars (values from `backend/.env` — never commit them; the authoritative list is `render.yaml` + [docs/runbooks/backend-deploy.md](../runbooks/backend-deploy.md)): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_PROJECT_REF`, `CLERK_SECRET_KEY`, `CLERK_ISSUER`, `REACT_APP_CLERK_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SENTRY_DSN`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESEND_API_KEY`, `FRONTEND_BASE_URL`, `API_BASE_URL`, `CRON_SECRET`, `LOG_LEVEL=INFO` (no `SUPABASE_ANON_KEY` — the backend has no anon client since 2026-10-06), and:
 
 ```
 CORS_ALLOWED_ORIGINS=https://ysc.growthbychoice.com,https://your-student-companion-main.vercel.app

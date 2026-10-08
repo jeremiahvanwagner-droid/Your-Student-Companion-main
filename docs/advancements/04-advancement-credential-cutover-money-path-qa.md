@@ -24,7 +24,7 @@
 | Dashboard | Vercel env: `REACT_APP_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG_SLUG`, `SENTRY_PROJECT_SLUG` (Production scope) |
 | Dashboard | Clerk production instance; Stripe Live activation + webhook destination |
 | Run (no edit) | `backend/scripts/create_stripe_products.py`, `create_stripe_subscriptions.py` against Live keys |
-| Run (no edit) | `backend/scripts/validate_supabase_webhook.py` against the Live webhook |
+| Run (no edit) | `backend/scripts/validate_stripe_webhook.py` (renamed from `validate_supabase_webhook.py` on 2026-10-06) against the Live webhook |
 | Modify | `docs/runbooks/observability.md` (record prod DSN activation date) |
 | Create | `docs/runbooks/secret-inventory.md` (every secret: name, where it lives, who can read it) |
 | Modify | `CURRENT_STATE.md` (S-OBS-CLOSE-001 + QA audit rows) |
@@ -43,7 +43,7 @@
 
 **Stage 3 — Live cutover (only after Stages 1–2 pass):**
 7. **Clerk:** create production instance; configure `ysc.growthbychoice.com` + redirect URLs; swap `REACT_APP_CLERK_PUBLISHABLE_KEY` (Vercel) and `CLERK_SECRET_KEY` (Render); verify backend JWKS resolution against the prod issuer (sign in, call `/api/users/me`).
-8. **Stripe:** activate Live mode; run the two product-creation scripts with Live keys (56 one-time + 2 subs + 4 prices); create the Live webhook destination pointing at the Supabase Edge function (same 7 events as Test, [CURRENT_STATE.md:29](../../CURRENT_STATE.md)); sync `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` to both the Render backend env and the Edge function secrets; run `validate_supabase_webhook.py` → PASS.
+8. **Stripe:** activate Live mode; run the two product-creation scripts with Live keys (56 one-time + 2 subs + 4 prices); create the Live webhook destination pointing at the FastAPI route `https://<render-service>/api/webhooks/stripe` (same 7 events as Test; the Supabase Edge function was deleted on 2026-10-06, decision D5); set `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` in the Render backend env; run `validate_stripe_webhook.py --live --expect-ledger` → PASS.
 9. **Live smoke purchase:** buy the cheapest pack with a real card for ~$0.50-equivalent (or 100%-off promo code), confirm entitlement appears, then refund via the Stripe dashboard.
 10. **Rotate** any key that ever left the vault (the Windows env-var collision incident means `SUPABASE_*` values have floated around — rotate the service-role key last, updating Render + Edge function in the same window). Write `docs/runbooks/secret-inventory.md`.
 

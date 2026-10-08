@@ -1,0 +1,121 @@
+# Nightly encrypted logical backup of the production Supabase database (plan §3.9).
+#
+# Output: one GitHub Actions artifact per run, `ysc-db-<UTC stamp>.tar.gz.age`, holding
+# roles.sql + schema.sql + data.sql encrypted to the owner's age public key, kept 90 days.
+# The repo is public, so nothing leaves this job unencrypted. Supabase Pro's own daily
+# backups (7-day window) remain the second copy. Restore drill: docs/runbooks/database.md §7.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#
+#   SUPABASE_DB_URL        Postgres URI of ysc-prod. It MUST be the **Session pooler** URI
+#                          (Dashboard → Connect → Session pooler, port 5432), i.e.
+#                          postgresql://postgres.<ref>:<password>@aws-0-us-east-2.pooler.supabase.com:5432/postgres
+#                          GitHub-hosted runners are IPv4-only and the direct host
+#                          db.<ref>.supabase.co resolves to IPv6 only (no IPv4 add-on bought),
+#                          so a direct URI fails with "network unreachable". The transaction
+#                          pooler (port 6543) is also wrong: pg_dump needs session mode.
+#                          Percent-encode the password if it contains reserved characters.
+#
+#   BACKUP_AGE_PUBLIC_KEY  The `age1…` recipient from `age-keygen`. The matching
+#                          AGE-SECRET-KEY-1… private key lives ONLY in the password manager
+#                          (docs/runbooks/secret-inventory.md) — never as a GitHub secret —
+#                          so a compromised runner cannot decrypt what it just uploaded.
+#
+# Owner follow-up: once a month download one artifact and copy it to OneDrive, because
+# artifacts expire after 90 days (database.md §6).
+name: DB backup
+
+on:
+  schedule:
+    - cron: "17 7 * * *"   # daily 07:17 UTC (~03:17 US-Eastern); off the :00 crowd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      BACKUP_AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+
+    steps:
+      - name: Fail loudly if a required secret is missing or malformed
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SUPABASE_DB_URL BACKUP_AGE_PUBLIC_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Repository secret $name is not set (Settings → Secrets and variables → Actions)."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          case "$BACKUP_AGE_PUBLIC_KEY" in
+            age1*) ;;
+            *) echo "::error::BACKUP_AGE_PUBLIC_KEY is not an age recipient (must start with age1). The AGE-SECRET-KEY must never be put here."; exit 1 ;;
+          esac
+          case "$SUPABASE_DB_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::SUPABASE_DB_URL is not a postgresql:// URI."; exit 1 ;;
+          esac
+          case "$SUPABASE_DB_URL" in
+            *pooler.supabase.com:5432/*) ;;
+            *) echo "::warning::SUPABASE_DB_URL is not a Session-pooler URI (…pooler.supabase.com:5432). Direct db.<ref>.supabase.co hosts are IPv6-only and fail from GitHub runners." ;;
+          esac
+
+      # supabase/config.toml is needed so the CLI runs the pg_dump that matches
+      # [db].major_version (dumping PG17 with an older pg_dump fails on version mismatch).
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.76.8   # same pin as package.json devDependency and ci.yml
+
+      - name: Install age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age
+          age --version
+
+      - name: Dump roles, schema and data
+        run: |
+          set -euo pipefail
+          mkdir -p dump
+          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f dump/roles.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/schema.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only --use-copy -f dump/data.sql
+          for f in roles schema data; do
+            [ -s "dump/$f.sql" ] || { echo "::error::dump/$f.sql is empty"; exit 1; }
+          done
+          grep -qiE 'create table' dump/schema.sql || { echo "::error::schema.sql has no CREATE TABLE — wrong database?"; exit 1; }
+          wc -c dump/*.sql
+
+      - name: Encrypt (plaintext never leaves this step)
+        run: |
+          set -euo pipefail
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          archive="ysc-db-${stamp}.tar.gz"
+          tar -C dump -czf "$archive" roles.sql schema.sql data.sql
+          age -r "$BACKUP_AGE_PUBLIC_KEY" -o "${archive}.age" "$archive"
+          head -n 1 "${archive}.age" | grep -q '^age-encryption.org/v1' || { echo "::error::encrypted output lacks the age header"; exit 1; }
+          shred -u "$archive"
+          rm -rf dump
+          ls -l "${archive}.age"
+          echo "ARCHIVE=${archive}.age" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 90
+          if-no-files-found: error
+          compression-level: 0   # already gzip + age; recompressing only burns minutes

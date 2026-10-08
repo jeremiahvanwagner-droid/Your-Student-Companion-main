@@ -24,7 +24,7 @@
 | Create | `backend/templates/emails/` (welcome.html, nudge.html, weekly_reset.html — inline-CSS, text fallback) |
 | Modify | `backend/routes/reminders.py` (add `POST /api/reminders/weekly-reset`, admin-token guarded) |
 | Modify | `backend/routes/users.py` (welcome send on first resolve; `email_opt_out` in profile PATCH) |
-| Create | `backend/migrations/010_email_preferences.sql` |
+| Create | ~~`backend/migrations/010_email_preferences.sql`~~ — superseded: `student_profiles.email_opt_out` ships in `supabase/migrations/20261006000000_baseline.sql`; any further column is a new file under `supabase/migrations/` |
 | Modify | `src/pages/UserSettings.jsx` (email preference toggle) |
 | Create | `backend/tests/test_email.py`, extend `backend/tests/test_reminders.py` |
 | Modify | `backend/requirements.txt` — **no change needed** (use `requests` against the Resend REST API; avoids a new pin) |

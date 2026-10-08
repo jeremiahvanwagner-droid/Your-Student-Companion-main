@@ -1,4 +1,27 @@
-project_id = "uvyvvaxufmylqavewvex"
+# Supabase CLI configuration for Your Student Companion (validated against CLI 2.76.8).
+#
+# Only keys that differ from the CLI defaults are set. Everything else — ports,
+# [db.migrations], [db.seed] (-> ./seed.sql), studio, etc. — keeps the documented
+# defaults so `supabase start` / `supabase db reset` work unchanged.
+#
+# project_id: the hosted `ysc-prod` project ref (Pro org TRUTH J BLUE LLC, us-east-2,
+# Postgres 17, created 2026-10-06). Link with `npx supabase link --project-ref
+# wqnwdahtrxejxugajpis`. Locally this value only prefixes the Docker container names.
+project_id = "wqnwdahtrxejxugajpis"
 
-[functions.stripe-webhook]
-verify_jwt = false
+[db]
+# Must match the hosted project's Postgres major version (ysc-prod = 17).
+major_version = 17
+
+[auth]
+# D2: Clerk is the only identity provider. Supabase Auth sign-ups stay off locally so
+# the local stack behaves like production (where sign-ups are disabled in the
+# dashboard as well). There is no public.users -> auth.users FK in the schema.
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+
+# D5: the Stripe webhook is served by FastAPI (POST /api/webhooks/stripe). The former
+# [functions.stripe-webhook] block and supabase/functions/ were removed in the
+# 2026-10-06 rebuild; do not re-add an Edge webhook.

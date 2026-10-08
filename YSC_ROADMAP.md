@@ -21,6 +21,24 @@
 
 **Corrections noted (do not treat as new work):** the Executive Summary's "$0.99–$12.99/mo" pricing line is superseded by the locked 2-tier model — **Degree Bundle $7.99/mo, All-Access $14.99/mo**, 14-day trial, one-time packs, lifetime grandfathering (live tier constants `degree_bundle` / `all_access`; shipped Step 4, May 2026). The reconciled outline (§9) carries the authoritative table.
 
+### Decision Record (2026-10-06) — database deleted; rebuilt as schema-as-code
+
+*Appended on resume after the 2026-07-13 pause. Full rationale, timeline and verification gates are in the approved Scope v2 + Database Rebuild Plan (local file path recorded in [`CURRENT_STATE.md`](CURRENT_STATE.md) S-PLAN-SCOPE-V2-001).*
+
+**Incident.** The only Supabase project (`ysc-staging`) was deleted between 2026-07-22 and 2026-07-28 — cause unknown, org on Pro, daily backups lost with it. Because the backend was never deployed every lost row was dev/test data, but the subscription schema, the webhook ledger, the 7 exam tables and the security hardening had only ever been applied through the Supabase MCP and were never committed, so the repo could not rebuild its own database. **Corrective posture:** the schema is now code in `supabase/migrations/` (baseline + seed files), proven on every PR by a CI `db-migrate` job, backed up nightly (encrypted) with a rehearsed restore, and probed by a DB-touching `/api/health/ready`. No DDL reaches any project except via `supabase db push` from a merged PR.
+
+**Decisions (D1–D8, locked 2026-10-06):**
+- **D1** One project `ysc-prod`, region us-east-2, Postgres 17, on the existing Pro org; staging only at Live cutover; PITR deferred.
+- **D2** Clerk is the only identity provider — no `auth.users` FK, no shadow auth users, sign-ups disabled; RLS enabled on every table with **no policies** (deny-all); only `service_role` granted.
+- **D3** bigint identity ids for catalog + commerce tables, uuid for `users` and student-owned tables, uuid FKs on `user_purchases` / `user_subscriptions`.
+- **D4** Reuse the existing Stripe Test products/prices by metadata relink; fresh objects at Live.
+- **D5** FastAPI `POST /api/webhooks/stripe` is the only webhook; the Supabase Edge function is deleted.
+- **D6** Free beta on Stripe Test with admin-granted All-Access; store/subscribe UI behind `store_enabled=false`; Live cutover + $0.50 canary at public launch.
+- **D7** v1 cuts: Step 6 messaging cut; exam UI, voice mentor and the grandfather email deferred/dropped; one-time packs kept with truthful copy.
+- **D8** Canonical documents: `CURRENT_STATE.md` + code + `supabase/migrations/` are truth. **§3 (Current State Snapshot) of this roadmap is superseded by `CURRENT_STATE.md`**; `YSC-Architecture-Requirements.md` (OneDrive) and `docs/full-project-technical-outline.md` are superseded; scope v2 will live at `docs/scope/ysc-full-scope-v2.md`.
+
+**Timeline re-baselined:** Phase 0R DB rebuild (Oct) → backend live on Render → money path + safety → beta readiness → free beta (wave 1 adults from Nov 30, wave 2 13–17 after counsel) → Live cutover + public launch Jan 2027. The ~2026-08-20 target referenced elsewhere in this document is void.
+
 ---
 
 ## Table of Contents
@@ -458,7 +476,7 @@ Idempotency: dedupe on `event.id` table.
 | Field | Detail |
 |-------|--------|
 | Effort | 1 day |
-| Migration | `backend/migrations/006_extend_academic_levels.sql` |
+| Migration | a new seed migration under `supabase/migrations/` (was planned as `backend/migrations/006_extend_academic_levels.sql`; that directory was archived 2026-10-06) |
 
 **New levels seeded**
 - High School: Freshman, Sophomore, Junior, Senior

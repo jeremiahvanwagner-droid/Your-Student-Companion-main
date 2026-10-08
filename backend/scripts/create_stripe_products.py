@@ -1,9 +1,14 @@
 """
 Create Stripe products/prices for course packs and persist IDs in Supabase.
 
+Prefer backend/scripts/relink_stripe_catalog.py when the Stripe account already
+holds Products/Prices for these packs (decision D4): this script creates NEW
+Stripe objects for every pack whose ids are empty.
+
 Usage:
   python backend/scripts/create_stripe_products.py
   python backend/scripts/create_stripe_products.py --dry-run --limit 5
+  python backend/scripts/create_stripe_products.py --live   # required for sk_live_ keys
 """
 
 from __future__ import annotations
@@ -25,8 +30,11 @@ ROOT_DIR = BACKEND_DIR.parent
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 
 from lib.supabase_client import SupabaseConfigError, get_supabase_admin_client
+from ysc_script_utils import stripe_key_guard_error
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Print intended updates without creating Stripe resources or writing to Supabase.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Allow running against a Stripe LIVE secret key (sk_live_...). Refused otherwise.",
     )
     return parser.parse_args()
 
@@ -86,7 +99,8 @@ def fetch_course_packs() -> List[Dict[str, Any]]:
         if "stripe_product_id" in message or "stripe_price_id" in message:
             raise RuntimeError(
                 "Supabase schema is missing Stripe columns on course_packs. "
-                "Run backend/migrations/003_store_payment_bootstrap.sql in Supabase SQL Editor."
+                "Apply supabase/migrations/ with `supabase db push` "
+                "(see docs/runbooks/database.md)."
             ) from exc
         raise
 
@@ -101,7 +115,8 @@ def update_course_pack(pack_id: Any, payload: Dict[str, str]) -> None:
         if "stripe_product_id" in message or "stripe_price_id" in message:
             raise RuntimeError(
                 "Supabase schema is missing Stripe columns on course_packs. "
-                "Run backend/migrations/003_store_payment_bootstrap.sql in Supabase SQL Editor."
+                "Apply supabase/migrations/ with `supabase db push` "
+                "(see docs/runbooks/database.md)."
             ) from exc
         raise
 
@@ -154,6 +169,11 @@ def main() -> int:
     stripe_key = os.getenv("STRIPE_SECRET_KEY")
     if not stripe_key and not args.dry_run:
         print("Error: STRIPE_SECRET_KEY is required unless --dry-run is used.")
+        return 1
+
+    guard_error = stripe_key_guard_error(stripe_key, args.live)
+    if guard_error:
+        print(f"Error: {guard_error}")
         return 1
 
     if stripe_key:

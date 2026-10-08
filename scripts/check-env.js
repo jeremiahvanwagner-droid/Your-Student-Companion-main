@@ -1,31 +1,38 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 /**
- * Prebuild env-var assertion.
+ * Prebuild env-var gate.
  *
- * Runs before `npm run build` (wired in package.json). Fails the build with a
- * clear, listed-out error if any required frontend env var is missing. The
- * goal is to prevent the failure mode that triggered the May 2026 walkthrough
- * findings, where production deployed without REACT_APP_CLERK_PUBLISHABLE_KEY
- * (a Clerk wizard had handed out a VITE_-prefixed variable) and silently
- * rendered the app without auth.
+ * Runs before `npm run build` via the `prebuild` hook in package.json and does
+ * two things, in this order:
  *
- * Vercel runs `npm run build`, so this gate fires on every Vercel build. CI
- * (.github/workflows/ci.yml) runs `npx craco build` directly so it bypasses
- * the prebuild hook — intentional, because we don't want CI to fail just
- * because secrets aren't wired into the workflow file.
+ *   1. SECRET GUARD (never skippable). CRA inlines every REACT_APP_* variable
+ *      into the public JS bundle (build/static/js/*), so a secret with that
+ *      prefix is a secret handed to every browser. Any defined REACT_APP_*
+ *      name matching /(SERVICE_ROLE|SECRET|WEBHOOK|PRIVATE)/i aborts the
+ *      build. Only names are printed, never values.
  *
- * To opt out for a one-off local build (e.g. compiling for a marketing
- * preview without auth), set SKIP_ENV_CHECK=true.
+ *   2. REQUIRED-VAR CHECK. Aborts the build with a clear, listed-out error if
+ *      a required frontend var is missing. This is the gate against the May
+ *      2026 walkthrough failure, where production deployed without
+ *      REACT_APP_CLERK_PUBLISHABLE_KEY (a Clerk wizard had handed out a
+ *      VITE_-prefixed variable) and silently rendered the app without auth.
+ *      SKIP_ENV_CHECK=true bypasses this step only — for a one-off local
+ *      build such as a marketing preview without auth.
+ *
+ * Where it fires: Vercel's build command is `npm run build` (vercel.json), so
+ * every Vercel build passes through here. CI (.github/workflows/ci.yml) runs
+ * `npx craco build` directly and bypasses the prebuild hook — intentional,
+ * because CI should not fail just because secrets aren't wired into the
+ * workflow file.
+ *
+ * The frontend never talks to Supabase — every data call goes through the
+ * FastAPI backend at REACT_APP_API_BASE_URL, which holds the only Supabase
+ * credentials — so no REACT_APP_SUPABASE_* variable is required or allowed.
  */
 
 const fs = require("fs");
 const path = require("path");
-
-if (process.env.SKIP_ENV_CHECK === "true") {
-  console.log("[check-env] SKIP_ENV_CHECK=true — skipping env-var check");
-  process.exit(0);
-}
 
 // Mirror CRA's env loading order so this script sees the same vars CRA will.
 // CRA loads .env.local before .env, and only when NODE_ENV !== 'test'.
@@ -52,10 +59,59 @@ function loadDotenvFiles() {
 
 loadDotenvFiles();
 
+function isSet(name) {
+  const value = process.env[name];
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+// ── 1. Secret guard ─────────────────────────────────────────────────────────
+// CRA's DefinePlugin exposes every var whose name matches /^REACT_APP_/i
+// (react-scripts/config/env.js), so the prefix is matched case-insensitively
+// here too. Presence alone fails the build: an empty or dead value still
+// proves the wrong habit, and the next value pasted into that name would ship
+// to the world. SKIP_ENV_CHECK does not apply to this step.
+const PUBLIC_PREFIX = /^REACT_APP_/i;
+const SECRET_NAME = /(SERVICE_ROLE|SECRET|WEBHOOK|PRIVATE)/i;
+
+const leakedSecretNames = Object.keys(process.env)
+  .filter((name) => PUBLIC_PREFIX.test(name) && SECRET_NAME.test(name))
+  .sort();
+
+if (leakedSecretNames.length > 0) {
+  console.error("");
+  console.error("=============================================================");
+  console.error("  Build aborted — secret-looking name has the REACT_APP_ prefix");
+  console.error("=============================================================");
+  console.error("");
+  console.error("CRA inlines every REACT_APP_* variable into the public JS bundle.");
+  console.error("These names match /(SERVICE_ROLE|SECRET|WEBHOOK|PRIVATE)/i and would");
+  console.error("be readable by anyone who loads the site (values not shown):");
+  console.error("");
+  for (const name of leakedSecretNames) {
+    console.error(`  ✗ ${name}`);
+  }
+  console.error("");
+  console.error("Remove them from .env.local and from Vercel → Environment Variables.");
+  console.error("Server-side secrets belong in backend/.env (local) or Render, without");
+  console.error("the REACT_APP_ prefix. If the value was ever live, rotate it — it may");
+  console.error("already be in a published bundle. This guard cannot be skipped.");
+  console.error("");
+  process.exit(1);
+}
+
+console.log("[check-env] OK — no secret-looking REACT_APP_* names in the environment");
+
+// ── 2. Required vars ────────────────────────────────────────────────────────
+if (process.env.SKIP_ENV_CHECK === "true") {
+  console.log("[check-env] SKIP_ENV_CHECK=true — skipping required env-var check");
+  process.exit(0);
+}
+
 // Required frontend env vars. Each entry includes the canonical name and
 // (optionally) acceptable aliases — if any name in the alias list is set, the
 // check passes for that entry. This lets us absorb framework-naming drift
-// without weakening the check.
+// without weakening the check (but see emitAliasWarnings: an alias keeps the
+// build green, it does not make the value reachable from the browser).
 const REQUIRED = [
   {
     canonical: "REACT_APP_CLERK_PUBLISHABLE_KEY",
@@ -63,19 +119,10 @@ const REQUIRED = [
     purpose: "Clerk authentication — without this the app cannot sign anyone in.",
   },
   {
-    canonical: "REACT_APP_SUPABASE_URL",
-    aliases: [],
-    purpose: "Supabase project URL — required for any data the frontend reads.",
-  },
-  {
-    canonical: "REACT_APP_SUPABASE_ANON_KEY",
-    aliases: [],
-    purpose: "Supabase anonymous key — required for any data the frontend reads.",
-  },
-  {
     canonical: "REACT_APP_API_BASE_URL",
     aliases: [],
-    purpose: "FastAPI backend URL — required for tasks, profile, subscriptions.",
+    purpose:
+      "FastAPI backend URL — required for tasks, profile, subscriptions and every other data read (the frontend has no Supabase client).",
   },
 ];
 
@@ -92,21 +139,38 @@ const SOFT_REQUIRED = [
   },
 ];
 
-const missing = REQUIRED.filter((entry) => {
-  const allNames = [entry.canonical, ...entry.aliases];
-  return !allNames.some((name) => {
-    const value = process.env[name];
-    return typeof value === "string" && value.trim().length > 0;
-  });
-});
+const missing = REQUIRED.filter(
+  (entry) => ![entry.canonical, ...entry.aliases].some(isSet)
+);
 
-const softMissing = SOFT_REQUIRED.filter((entry) => {
-  const allNames = [entry.canonical, ...entry.aliases];
-  return !allNames.some((name) => {
-    const value = process.env[name];
-    return typeof value === "string" && value.trim().length > 0;
-  });
-});
+const softMissing = SOFT_REQUIRED.filter(
+  (entry) => ![entry.canonical, ...entry.aliases].some(isSet)
+);
+
+// Entries satisfied only through an alias. CRA inlines REACT_APP_* names and
+// nothing else, so a NEXT_PUBLIC_ value never reaches the browser: the built
+// app behaves exactly as if the variable were unset, even though this check
+// passed. Warn every time, not just on production-style builds.
+const aliasOnly = REQUIRED.filter(
+  (entry) => !isSet(entry.canonical) && entry.aliases.some(isSet)
+);
+
+function emitAliasWarnings() {
+  for (const entry of aliasOnly) {
+    const used = entry.aliases.filter(isSet).join(", ");
+    console.warn("");
+    console.warn(
+      `[check-env] WARNING — ${entry.canonical} is unset; passing via alias ${used}.`
+    );
+    console.warn(
+      "    CRA exposes only REACT_APP_* variables to the browser, so the built app"
+    );
+    console.warn(
+      `    will NOT see ${used}. Set ${entry.canonical} before relying on this build.`
+    );
+    console.warn("");
+  }
+}
 
 function emitSoftWarnings() {
   if (softMissing.length === 0) {
@@ -133,6 +197,7 @@ if (missing.length === 0) {
   console.log(
     `[check-env] OK — all ${REQUIRED.length} required env vars are set`
   );
+  emitAliasWarnings();
   emitSoftWarnings();
   process.exit(0);
 }

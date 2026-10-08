@@ -106,8 +106,10 @@
 
 ## 6. Proposed schema additions
 
-Eight new tables plus one column add. All names are illustrative — open to
-revision before any migration runs.
+Seven new tables (§6.1–6.7) plus one column add (§6.8). All names are illustrative — open to
+revision before any migration runs. *(2026-10-06: these tables now live in
+`supabase/migrations/20261006000000_baseline.sql` with `course_pack_exams.course_pack_id bigint`;
+the §6.9 RLS sketch is replaced by deny-all RLS — the old anon-readable policy leaked the answer key.)*
 
 ### 6.1 `exams` — the test catalog
 
@@ -623,8 +625,10 @@ full admin build.
 All §11 decisions are locked. Phase 7.1 is ready to start. Its scope is
 self-contained:
 
-1. Apply the schema migration in §6 (8 new tables + 1 column add) to
-   `ysc-staging` via `apply_migration`.
+1. Apply the schema migration in §6 (7 new tables + 1 column add) — *done
+   2026-05-24 via `apply_migration`, lost with the project in July 2026; the
+   schema now lives in `supabase/migrations/` and is applied only via
+   `supabase db push` (`docs/runbooks/database.md`)*.
 2. Apply the RLS policies sketched in §6.9.
 3. Seed NY Regents Algebra I as the reference exam with at least one
    section, one passage (if applicable), and a small sample question
